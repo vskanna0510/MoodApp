@@ -141,41 +141,6 @@ const COLORS = {
 
 const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
 
-const FOCUS_PLANS = [
-  {
-    id: 'deep-work',
-    label: 'Deep Work',
-    moodId: 'low-deep-focus',
-    band: 'low',
-    timerMinutes: 45,
-    volume: 0.9,
-  },
-  {
-    id: 'study',
-    label: 'Study Session',
-    moodId: 'mid-lofi-beats',
-    band: 'mid',
-    timerMinutes: 30,
-    volume: 0.8,
-  },
-  {
-    id: 'coffee-break',
-    label: 'Coffee Break',
-    moodId: 'mid-coffee-shop',
-    band: 'mid',
-    timerMinutes: 15,
-    volume: 0.7,
-  },
-  {
-    id: 'sleep',
-    label: 'Sleep',
-    moodId: 'low-night-chill',
-    band: 'low',
-    timerMinutes: 60,
-    volume: 0.4,
-  },
-];
-
 export default function App() {
   const [phase, setPhase] = useState(PHASES.IDLE);
   const [moodProfile, setMoodProfile] = useState(null);
@@ -189,7 +154,6 @@ export default function App() {
   const [favourites, setFavourites] = useState([]);
   const [showMoodPicker, setShowMoodPicker] = useState(false);
   const [showFavourites, setShowFavourites] = useState(false);
-  const [selectedPlanId, setSelectedPlanId] = useState(null);
   const timerRef = useRef(null);
   const fadeRef = useRef(null);
   const orbScale = useRef(new Animated.Value(1)).current;
@@ -265,12 +229,6 @@ export default function App() {
   };
 
   useEffect(() => {
-    try {
-      player.volume = volume;
-    } catch (e) {}
-  }, [volume, player]);
-
-  useEffect(() => {
     if (theme) AsyncStorage.setItem(STORAGE_KEYS.THEME, theme);
   }, [theme]);
 
@@ -278,23 +236,12 @@ export default function App() {
     if (phase !== PHASES.PLAYING || timerMinutes <= 0) return;
     const ms = timerMinutes * 60 * 1000;
     timerRef.current = setTimeout(() => {
-      const fadeOut = () => {
-        try {
-          if (player.volume > 0.05) {
-            player.volume = Math.max(0, player.volume - 0.05);
-            fadeRef.current = setTimeout(fadeOut, 100);
-          } else {
-            player.pause();
-            player.seekTo(0);
-            player.volume = volume;
-            setPhase(PHASES.READY);
-            haptic('medium');
-          }
-        } catch (e) {
-          setPhase(PHASES.READY);
-        }
-      };
-      fadeOut();
+      try {
+        player.pause();
+        player.seekTo(0);
+      } catch (e) {}
+      setPhase(PHASES.READY);
+      haptic('medium');
     }, ms);
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
@@ -447,18 +394,6 @@ export default function App() {
     haptic('light');
   };
 
-  const applyFocusPlan = (planId) => {
-    const plan = FOCUS_PLANS.find((p) => p.id === planId);
-    if (!plan) return;
-    const moodFromId = ALL_MOODS.find((m) => m.id === plan.moodId);
-    const fallbackBucket = ALL_MOODS.filter((m) => m.band === plan.band);
-    const mood = moodFromId || fallbackBucket[0] || ALL_MOODS[0];
-    setVolume(plan.volume);
-    setTimerMinutes(plan.timerMinutes);
-    setSelectedPlanId(plan.id);
-    pickMoodManually(mood);
-  };
-
   const syncEnvironment = async () => {
     if (phase === PHASES.LISTENING || phase === PHASES.ANALYZING) return;
     haptic('medium');
@@ -558,7 +493,7 @@ export default function App() {
         style={StyleSheet.absoluteFill}
       />
       <SafeAreaView style={styles.safe} edges={['top']}>
-        {/* Header: theme toggle, focus plans, favourites */}
+        {/* Header: theme toggle, mood picker, favourites */}
         <View style={styles.header}>
           <TouchableOpacity
             style={[styles.iconButton, { backgroundColor: theme === THEME.DARK ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.08)' }]}
@@ -579,41 +514,6 @@ export default function App() {
             <Text style={[styles.iconButtonText, { color: c.text }]}>❤️ Favs</Text>
           </TouchableOpacity>
         </View>
-
-        {/* Focus plans */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.plansRow}
-        >
-          {FOCUS_PLANS.map((plan) => (
-            <TouchableOpacity
-              key={plan.id}
-              style={[
-                styles.planChip,
-                {
-                  backgroundColor:
-                    selectedPlanId === plan.id
-                      ? c.orbPlaying[0]
-                      : theme === THEME.DARK
-                      ? 'rgba(255,255,255,0.1)'
-                      : 'rgba(0,0,0,0.05)',
-                  borderColor: c.textDim,
-                },
-              ]}
-              onPress={() => { applyFocusPlan(plan.id); haptic('medium'); }}
-            >
-              <Text
-                style={[
-                  styles.planChipText,
-                  { color: selectedPlanId === plan.id ? '#fff' : c.text },
-                ]}
-              >
-                {plan.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
 
         <AnimatedScrollView
           style={{ flex: 1, width: '100%' }}
@@ -871,22 +771,6 @@ const styles = StyleSheet.create({
   },
   iconButtonText: {
     fontSize: 12,
-    fontWeight: '600',
-  },
-  plansRow: {
-    paddingHorizontal: 12,
-    paddingBottom: 6,
-    gap: 6,
-  },
-  planChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 14,
-    borderWidth: 1,
-    marginRight: 6,
-  },
-  planChipText: {
-    fontSize: 11,
     fontWeight: '600',
   },
   content: {
