@@ -1,15 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import {
-  StyleSheet,
-  Text,
-  View,
-  TouchableOpacity,
-  Animated,
-  Dimensions,
-  Platform,
-  Modal,
-  ScrollView,
-} from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Animated, Dimensions, Platform, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -23,6 +13,13 @@ import {
   setAudioModeAsync,
 } from 'expo-audio';
 import * as FileSystem from 'expo-file-system/legacy';
+import Header from './components/Header';
+import NowPlayingBar from './components/NowPlayingBar';
+import Controls from './components/Controls';
+import MoodPickerModal from './components/MoodPickerModal';
+import JourneysModal from './components/JourneysModal';
+import ReflectionModal from './components/ReflectionModal';
+import FavouritesModal from './components/FavouritesModal';
 
 const { width } = Dimensions.get('window');
 const API_URL = 'http://10.0.2.2:4000/analyze';
@@ -666,33 +663,26 @@ export default function App() {
         style={StyleSheet.absoluteFill}
       />
       <SafeAreaView style={styles.safe} edges={['top']}>
-        {/* Header: theme toggle, journeys, mood picker, favourites */}
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={[styles.iconButton, { backgroundColor: theme === THEME.DARK ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.08)' }]}
-            onPress={() => { setTheme((t) => (t === THEME.DARK ? THEME.LIGHT : THEME.DARK)); haptic('light'); }}
-          >
-            <Text style={[styles.iconButtonText, { color: c.text }]}>{theme === THEME.DARK ? '☀️' : '🌙'}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.iconButton, { backgroundColor: theme === THEME.DARK ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.08)' }]}
-            onPress={() => { setShowJourneys(true); haptic('light'); }}
-          >
-            <Text style={[styles.iconButtonText, { color: c.text }]}>Journeys</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.iconButton, { backgroundColor: theme === THEME.DARK ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.08)' }]}
-            onPress={() => { setShowMoodPicker(true); haptic('light'); }}
-          >
-            <Text style={[styles.iconButtonText, { color: c.text }]}>Pick mood</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.iconButton, { backgroundColor: theme === THEME.DARK ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.08)' }]}
-            onPress={() => { setShowFavourites(true); haptic('light'); }}
-          >
-            <Text style={[styles.iconButtonText, { color: c.text }]}>❤️ Favs</Text>
-          </TouchableOpacity>
-        </View>
+        <Header
+          theme={theme}
+          colors={c}
+          onToggleTheme={() => {
+            setTheme((t) => (t === THEME.DARK ? THEME.LIGHT : THEME.DARK));
+            haptic('light');
+          }}
+          onOpenJourneys={() => {
+            setShowJourneys(true);
+            haptic('light');
+          }}
+          onOpenMoodPicker={() => {
+            setShowMoodPicker(true);
+            haptic('light');
+          }}
+          onOpenFavourites={() => {
+            setShowFavourites(true);
+            haptic('light');
+          }}
+        />
 
         <AnimatedScrollView
           style={{ flex: 1, width: '100%' }}
@@ -766,262 +756,113 @@ export default function App() {
             )}
           </Animated.View>
 
-          {/* Volume */}
-          <View style={styles.volumeRow}>
-            <Text style={[styles.volumeLabel, { color: c.textDim }]}>Volume</Text>
-            <View style={styles.volumeSegments}>
-              {[0, 0.25, 0.5, 0.75, 1].map((v) => (
-                <TouchableOpacity
-                  key={v}
-                  style={[
-                    styles.volumeSegment,
-                    { backgroundColor: volume >= v ? c.orbReady[0] : (theme === THEME.DARK ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)') },
-                  ]}
-                  onPress={() => { setVolume(v); haptic('light'); }}
-                />
-              ))}
-            </View>
-          </View>
-
-          {/* Timer / Sleep */}
-          <View style={styles.timerRow}>
-            <Text style={[styles.volumeLabel, { color: c.textDim }]}>Sleep timer</Text>
-            <View style={styles.timerChips}>
-              {TIMER_OPTIONS.map((m) => (
-                <TouchableOpacity
-                  key={m}
-                  style={[
-                    styles.timerChip,
-                    {
-                      backgroundColor: timerMinutes === m ? c.orbPlaying[0] : (theme === THEME.DARK ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.08)'),
-                      borderColor: c.textDim,
-                    },
-                  ]}
-                  onPress={() => { setTimerMinutes(m); haptic('light'); }}
-                >
-                  <Text style={[styles.timerChipText, { color: c.text }]}>{m === 0 ? 'Off' : `${m}m`}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-
-          <TouchableOpacity
-            style={[styles.syncButton, isSyncDisabled && styles.syncButtonDisabled]}
-            onPress={syncEnvironment}
-            disabled={isSyncDisabled}
-            activeOpacity={0.8}
-          >
-            <LinearGradient
-              colors={isSyncDisabled ? ['#555', '#333'] : ['#667eea', '#764ba2']}
-              style={styles.syncGradient}
-            >
-              <Text style={styles.syncButtonText}>
-                {phase === PHASES.LISTENING
-                  ? 'Listening...'
-                  : phase === PHASES.ANALYZING
-                  ? 'Analyzing...'
-                  : 'Sync Environment'}
-              </Text>
-            </LinearGradient>
-          </TouchableOpacity>
-
-          {/* Play + Favourites are always visible; play is disabled until ready */}
-          <TouchableOpacity
-            style={[styles.playButton, !canPlay && { opacity: 0.5 }]}
-            onPress={canPlay ? playSoundscape : undefined}
-            activeOpacity={canPlay ? 0.8 : 1}
-          >
-            <LinearGradient
-              colors={['#11998e', '#38ef7d']}
-              style={styles.playGradient}
-            >
-              <Text style={styles.playButtonText}>
-                {phase === PHASES.PLAYING ? 'Stop Soundscape' : 'Play Soundscape'}
-              </Text>
-            </LinearGradient>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.favButton, { borderColor: c.textDim, opacity: moodProfile ? 1 : 0.5 }]}
-            onPress={moodProfile ? addToFavourites : undefined}
-            activeOpacity={moodProfile ? 0.8 : 1}
-          >
-            <Text style={[styles.favButtonText, { color: c.text }]}>❤️ Add to Favourites</Text>
-          </TouchableOpacity>
+          <Controls
+            volume={volume}
+            setVolume={(v) => {
+              setVolume(v);
+              haptic('light');
+            }}
+            timerMinutes={timerMinutes}
+            setTimerMinutes={(m) => {
+              setTimerMinutes(m);
+              haptic('light');
+            }}
+            onSync={isSyncDisabled ? undefined : syncEnvironment}
+            onPlay={playSoundscape}
+            canPlay={canPlay}
+            moodProfile={moodProfile}
+            isPlaying={phase === PHASES.PLAYING}
+            colors={c}
+            theme={theme}
+            onAddFavourite={addToFavourites}
+            styles={styles}
+          />
         </AnimatedScrollView>
 
-        {/* Now Playing bar */}
-        {moodProfile && canPlay && (
-          <View style={[styles.nowPlayingBar, { backgroundColor: theme === THEME.DARK ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.9)' }]}>
-            <Text style={[styles.nowPlayingLabel, { color: c.text }]} numberOfLines={1}>
-              {moodProfile.label}
-            </Text>
-            <TouchableOpacity
-              style={[styles.nowPlayingBtn, { backgroundColor: c.orbReady[0] }]}
-              onPress={playSoundscape}
-            >
-              <Text style={styles.nowPlayingBtnText}>{phase === PHASES.PLAYING ? '⏸' : '▶'}</Text>
-            </TouchableOpacity>
-            {timerMinutes > 0 && (
-              <Text style={[styles.timerBadge, { color: c.textDim }]}>{timerMinutes}m</Text>
-            )}
-          </View>
-        )}
+        <NowPlayingBar
+          moodProfile={moodProfile}
+          canPlay={canPlay}
+          timerMinutes={timerMinutes}
+          colors={c}
+          theme={theme}
+          onTogglePlay={playSoundscape}
+          isPlaying={phase === PHASES.PLAYING}
+        />
       </SafeAreaView>
 
-      {/* Manual Mood Picker Modal */}
-      <Modal visible={showMoodPicker} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { backgroundColor: theme === THEME.DARK ? '#1a1a2e' : '#f5f5f5' }]}>
-            <Text style={[styles.modalTitle, { color: c.text }]}>Pick a mood</Text>
-            <ScrollView style={styles.moodList} showsVerticalScrollIndicator={false}>
-              {moodFamilies.length > 0
-                ? moodFamilies.map((family) => (
-                    <View key={family.id} style={{ marginBottom: 12 }}>
-                      <Text style={[styles.moodFamilyLabel, { color: c.textDim }]}>
-                        {family.label}
-                      </Text>
-                      {(family.moods || []).map((mood) => (
-                        <TouchableOpacity
-                          key={mood.id}
-                          style={[styles.moodItem, { borderColor: c.textDim }]}
-                          onPress={() => pickMoodManually({ ...mood, band: mood.band })}
-                        >
-                          <Text style={[styles.moodItemText, { color: c.text }]}>
-                            {mood.label}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  ))
-                : allMoods.map((mood) => (
-                    <TouchableOpacity
-                      key={mood.id}
-                      style={[styles.moodItem, { borderColor: c.textDim }]}
-                      onPress={() => pickMoodManually(mood)}
-                    >
-                      <Text style={[styles.moodItemText, { color: c.text }]}>{mood.label}</Text>
-                    </TouchableOpacity>
-                  ))}
-            </ScrollView>
-            <TouchableOpacity
-              style={[styles.modalClose, { backgroundColor: c.orbPlaying[0] }]}
-              onPress={() => { setShowMoodPicker(false); haptic('light'); }}
-            >
-              <Text style={styles.syncButtonText}>Close</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      <MoodPickerModal
+        visible={showMoodPicker}
+        onClose={() => {
+          setShowMoodPicker(false);
+          haptic('light');
+        }}
+        moodFamilies={moodFamilies}
+        allMoods={allMoods}
+        onSelectMood={pickMoodManually}
+        colors={c}
+        theme={theme}
+        styles={styles}
+      />
 
       {/* Favourites Modal */}
-      {/* Journeys Modal */}
-      <Modal visible={showJourneys} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { backgroundColor: theme === THEME.DARK ? '#1a1a2e' : '#f5f5f5' }]}>
-            <Text style={[styles.modalTitle, { color: c.text }]}>Journeys</Text>
-            <ScrollView style={styles.moodList} showsVerticalScrollIndicator={false}>
-              {journeys.map((journey) => {
-                const totalMinutes =
-                  journey.steps?.reduce((sum, step) => sum + (step.minutes || 0), 0) || 0;
-                return (
-                  <TouchableOpacity
-                    key={journey.id}
-                    style={[styles.moodItem, { borderColor: c.textDim }]}
-                    onPress={() => {
-                      cancelJourney();
-                      setActiveJourneyId(journey.id);
-                      setActiveJourneyStep(0);
-                      setShowJourneys(false);
-                      haptic('medium');
-                    }}
-                  >
-                    <Text style={[styles.moodItemText, { color: c.text }]}>{journey.label}</Text>
-                    <Text style={[styles.moodDetail, { color: c.textDim }]}>
-                      {totalMinutes ? `${totalMinutes} min` : ''}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-            <TouchableOpacity
-              style={[styles.modalClose, { backgroundColor: c.orbPlaying[0] }]}
-              onPress={() => { setShowJourneys(false); haptic('light'); }}
-            >
-              <Text style={styles.syncButtonText}>Close</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
 
-      {/* Reflection Modal */}
-      <Modal visible={showReflection} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { backgroundColor: theme === THEME.DARK ? '#1a1a2e' : '#f5f5f5' }]}>
-            <Text style={[styles.modalTitle, { color: c.text }]}>How was your session?</Text>
-            <Text style={[styles.moodDetail, { color: c.textDim, marginBottom: 16 }]}>
-              Did this journey help you focus or relax?
-            </Text>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
-              {['yes', 'some', 'no'].map((result) => (
-                <TouchableOpacity
-                  key={result}
-                  style={[styles.timerChip, { backgroundColor: c.orbReady[0], borderColor: 'transparent', flex: 1 }]}
-                  onPress={async () => {
-                    try {
-                      const raw = await AsyncStorage.getItem(STORAGE_KEYS.REFLECTIONS);
-                      const list = raw ? JSON.parse(raw) : [];
-                      list.push({
-                        journeyId: lastJourneyId,
-                        result,
-                        at: Date.now(),
-                      });
-                      await AsyncStorage.setItem(
-                        STORAGE_KEYS.REFLECTIONS,
-                        JSON.stringify(list.slice(-100))
-                      );
-                    } catch (e) {}
-                    setShowReflection(false);
-                    setLastJourneyId(null);
-                  }}
-                >
-                  <Text style={[styles.timerChipText, { color: '#fff', textAlign: 'center' }]}>
-                    {result === 'yes' ? 'Yes' : result === 'some' ? 'A bit' : 'Not really'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        </View>
-      </Modal>
-      <Modal visible={showFavourites} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { backgroundColor: theme === THEME.DARK ? '#1a1a2e' : '#f5f5f5' }]}>
-            <Text style={[styles.modalTitle, { color: c.text }]}>Favourites</Text>
-            {favourites.length === 0 ? (
-              <Text style={[styles.moodDetail, { color: c.textDim, marginVertical: 24 }]}>No favourites yet. Play a soundscape and tap "Add to Favourites".</Text>
-            ) : (
-              <ScrollView style={styles.moodList} showsVerticalScrollIndicator={false}>
-                {favourites.map((fav) => (
-                  <View key={fav.id} style={[styles.favItem, { borderColor: c.textDim }]}>
-                    <TouchableOpacity style={styles.favItemMain} onPress={() => playFromFavourite(fav)}>
-                      <Text style={[styles.moodItemText, { color: c.text }]}>{fav.label}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => removeFavourite(fav.id)} style={styles.favRemove}>
-                      <Text style={[styles.favRemoveText, { color: c.textDim }]}>Remove</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))}
-              </ScrollView>
-            )}
-            <TouchableOpacity
-              style={[styles.modalClose, { backgroundColor: c.orbPlaying[0] }]}
-              onPress={() => { setShowFavourites(false); haptic('light'); }}
-            >
-              <Text style={styles.syncButtonText}>Close</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      <JourneysModal
+        visible={showJourneys}
+        onClose={() => {
+          setShowJourneys(false);
+          haptic('light');
+        }}
+        journeys={journeys}
+        colors={c}
+        theme={theme}
+        styles={styles}
+        onSelectJourney={(journey) => {
+          cancelJourney();
+          setActiveJourneyId(journey.id);
+          setActiveJourneyStep(0);
+          setShowJourneys(false);
+          haptic('medium');
+        }}
+        cancelJourney={cancelJourney}
+      />
+
+      <ReflectionModal
+        visible={showReflection}
+        colors={c}
+        theme={theme}
+        styles={styles}
+        onAnswer={async (result) => {
+          try {
+            const raw = await AsyncStorage.getItem(STORAGE_KEYS.REFLECTIONS);
+            const list = raw ? JSON.parse(raw) : [];
+            list.push({
+              journeyId: lastJourneyId,
+              result,
+              at: Date.now(),
+            });
+            await AsyncStorage.setItem(
+              STORAGE_KEYS.REFLECTIONS,
+              JSON.stringify(list.slice(-100))
+            );
+          } catch (e) {}
+          setShowReflection(false);
+          setLastJourneyId(null);
+        }}
+      />
+
+      <FavouritesModal
+        visible={showFavourites}
+        favourites={favourites}
+        colors={c}
+        theme={theme}
+        styles={styles}
+        onClose={() => {
+          setShowFavourites(false);
+          haptic('light');
+        }}
+        onPlayFavourite={playFromFavourite}
+        onRemoveFavourite={removeFavourite}
+      />
     </View>
   );
 }
@@ -1218,34 +1059,6 @@ const styles = StyleSheet.create({
   favButtonText: {
     fontSize: 15,
     fontWeight: '600',
-  },
-  nowPlayingBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 12,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(128,128,128,0.2)',
-  },
-  nowPlayingLabel: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  nowPlayingBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  nowPlayingBtnText: {
-    color: '#fff',
-    fontSize: 18,
-  },
-  timerBadge: {
-    fontSize: 12,
   },
   modalOverlay: {
     flex: 1,
