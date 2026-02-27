@@ -94,8 +94,34 @@ const MOODS_BY_BAND = ALL_MOODS.reduce((acc, mood) => {
   return acc;
 }, {});
 
+// Simple journeys: ordered sequences of moods with durations in minutes
+const JOURNEYS = [
+  {
+    id: 'focus20',
+    label: '20‑min Focus',
+    steps: [
+      { moodId: 'mid-lofi-beats', minutes: 10 },
+      { moodId: 'low-deep-focus', minutes: 10 },
+    ],
+  },
+  {
+    id: 'relax15',
+    label: '15‑min Coffee Break',
+    steps: [{ moodId: 'mid-coffee-shop', minutes: 15 }],
+  },
+  {
+    id: 'sleep30',
+    label: '30‑min Sleep Drift',
+    steps: [{ moodId: 'low-night-chill', minutes: 30 }],
+  },
+];
+
 app.get('/moods', (req, res) => {
   res.json({ families: MOOD_FAMILIES });
+});
+
+app.get('/journeys', (req, res) => {
+  res.json({ journeys: JOURNEYS });
 });
 
 app.post('/analyze', (req, res) => {
@@ -114,14 +140,18 @@ app.post('/analyze', (req, res) => {
   const bucket = MOODS_BY_BAND[band] ?? ALL_MOODS;
   const mood =
     bucket[Math.floor(Math.random() * bucket.length)] ?? bucket[0];
-  const trackUrl =
-    mood.tracks[Math.floor(Math.random() * mood.tracks.length)] ??
-    mood.tracks[0];
+  const trackIndex =
+    mood.tracks && mood.tracks.length
+      ? Math.floor(Math.random() * mood.tracks.length)
+      : 0;
+  const trackUrl = mood.tracks[trackIndex] ?? mood.tracks[0];
+  const recipeId = `${mood.id}__${trackIndex}`;
 
   res.json({
     moodBand: band,
     moodId: mood.id,
     label: mood.label,
+    recipeId,
     trackUrl,
   });
 });

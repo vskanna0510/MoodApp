@@ -22,7 +22,7 @@ import {
   RecordingPresets,
   setAudioModeAsync,
 } from 'expo-audio';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 const { width } = Dimensions.get('window');
 const API_URL = 'http://10.0.2.2:4000/analyze';
@@ -112,7 +112,12 @@ const ALL_MOODS = [
   ...MOOD_LIBRARY.high.map((m) => ({ ...m, band: 'high' })),
 ];
 
-const STORAGE_KEYS = { THEME: '@moodmap_theme', FAVOURITES: '@moodmap_favourites' };
+const STORAGE_KEYS = {
+  THEME: '@moodmap_theme',
+  FAVOURITES: '@moodmap_favourites',
+  TRACK_CACHE: '@moodmap_track_cache',
+  REFLECTIONS: '@moodmap_reflections',
+};
 const TIMER_OPTIONS = [0, 15, 30, 45, 60]; // 0 = off
 
 const THEME = { DARK: 'dark', LIGHT: 'light' };
@@ -142,6 +147,7 @@ const COLORS = {
 const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
 
 const MOODS_URL = 'http://10.0.2.2:4000/moods';
+const JOURNEYS_URL = 'http://10.0.2.2:4000/journeys';
 
 export default function App() {
   const [phase, setPhase] = useState(PHASES.IDLE);
@@ -158,8 +164,17 @@ export default function App() {
   const [showFavourites, setShowFavourites] = useState(false);
   const [moodFamilies, setMoodFamilies] = useState([]);
   const [allMoods, setAllMoods] = useState(ALL_MOODS);
+  const [journeys, setJourneys] = useState([]);
+  const [showJourneys, setShowJourneys] = useState(false);
+  const [activeJourneyId, setActiveJourneyId] = useState(null);
+  const [activeJourneyStep, setActiveJourneyStep] = useState(0);
+  const [showReflection, setShowReflection] = useState(false);
+  const [lastJourneyId, setLastJourneyId] = useState(null);
   const timerRef = useRef(null);
   const fadeRef = useRef(null);
+  const trackCacheRef = useRef({});
+  const currentTrackUrlRef = useRef(null);
+  const journeyTimerRef = useRef(null);
   const orbScale = useRef(new Animated.Value(1)).current;
   const orbOpacity = useRef(new Animated.Value(0.9)).current;
   const ringScale = useRef(new Animated.Value(1)).current;
@@ -178,6 +193,17 @@ export default function App() {
         if (stored === THEME.LIGHT || stored === THEME.DARK) setTheme(stored);
         const fav = await AsyncStorage.getItem(STORAGE_KEYS.FAVOURITES);
         if (fav) setFavourites(JSON.parse(fav));
+      } catch (e) {}
+
+      // Load cached track URIs for faster playback
+      try {
+        const cacheRaw = await AsyncStorage.getItem(STORAGE_KEYS.TRACK_CACHE);
+        if (cacheRaw) {
+          const parsed = JSON.parse(cacheRaw);
+          if (parsed && typeof parsed === 'object') {
+            trackCacheRef.current = parsed;
+          }
+        }
       } catch (e) {}
 
       // Load mood taxonomy from backend
@@ -199,6 +225,19 @@ export default function App() {
       } catch (e) {
         // Fallback to static ALL_MOODS when backend is unreachable
         setMoodFamilies([]);
+      }
+
+      // Load journeys from backend
+      try {
+        const res = await fetch(JOURNEYS_URL);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && Array.isArray(data.journeys)) {
+            setJourneys(data.journeys);
+          }
+        }
+      } catch (e) {
+        // ignore if journeys endpoint is unavailable
       }
     })();
   }, []);
@@ -350,11 +389,12 @@ export default function App() {
       if (!data || !data.moodBand || !data.moodId || !data.label || !data.trackUrl) {
         throw new Error('Invalid response');
       }
-      setCurrentTrack(data.trackUrl);
+      setTrackForPlayback(data.trackUrl);
       setMoodProfile({
         peaks: {},
         dominant: data.moodBand,
         moodId: data.moodId,
+        recipeId: data.recipeId || null,
         label: data.label,
       });
       return true;
@@ -374,22 +414,30 @@ export default function App() {
     const pool = candidates.length ? candidates : allMoods;
     const mood =
       pool[Math.floor(Math.random() * pool.length)] ?? pool[0] ?? ALL_MOODS[0];
+    const trackIndex =
+      mood.tracks && mood.tracks.length
+        ? Math.floor(Math.random() * mood.tracks.length)
+        : 0;
     const track =
-      mood.tracks[Math.floor(Math.random() * mood.tracks.length)] ??
-      mood.tracks[0];
-    setCurrentTrack(track);
+      mood.tracks[trackIndex] ?? mood.tracks[0];
+    setTrackForPlayback(track);
     setMoodProfile({
       peaks,
       dominant,
       moodId: mood.id,
+      recipeId: `${mood.id}__${trackIndex}`,
       label: mood.label,
     });
   };
 
   const pickMoodManually = (mood) => {
-    const track =
-      mood.tracks[Math.floor(Math.random() * mood.tracks.length)] ?? mood.tracks[0];
-    setCurrentTrack(track);
+    cancelJourney();
+    const trackIndex =
+      mood.tracks && mood.tracks.length
+        ? Math.floor(Math.random() * mood.tracks.length)
+        : 0;
+    const track = mood.tracks[trackIndex] ?? mood.tracks[0];
+    setTrackForPlayback(track);
     setMoodProfile({ peaks: {}, dominant: mood.band, moodId: mood.id, label: mood.label });
     setPhase(PHASES.READY);
     setShowMoodPicker(false);
@@ -399,14 +447,19 @@ export default function App() {
   const addToFavourites = () => {
     if (!moodProfile || !currentTrack) return;
     haptic('light');
-    const entry = { id: Date.now().toString(), label: moodProfile.label, trackUrl: currentTrack, moodId: moodProfile.moodId };
+    const entry = {
+      id: Date.now().toString(),
+      label: moodProfile.label,
+      trackUrl: currentTrackUrlRef.current || currentTrack,
+      moodId: moodProfile.moodId,
+    };
     const next = [entry, ...favourites].slice(0, 50);
     setFavourites(next);
     AsyncStorage.setItem(STORAGE_KEYS.FAVOURITES, JSON.stringify(next));
   };
 
   const playFromFavourite = (fav) => {
-    setCurrentTrack(fav.trackUrl);
+    setTrackForPlayback(fav.trackUrl);
     setMoodProfile({ label: fav.label, moodId: fav.moodId, dominant: 'mid', peaks: {} });
     setPhase(PHASES.READY);
     setShowFavourites(false);
@@ -419,6 +472,100 @@ export default function App() {
     AsyncStorage.setItem(STORAGE_KEYS.FAVOURITES, JSON.stringify(next));
     haptic('light');
   };
+
+  const cancelJourney = () => {
+    if (journeyTimerRef.current) clearTimeout(journeyTimerRef.current);
+    journeyTimerRef.current = null;
+    setActiveJourneyId(null);
+    setActiveJourneyStep(0);
+  };
+
+  const setTrackForPlayback = (trackUrl) => {
+    if (!trackUrl) return;
+    currentTrackUrlRef.current = trackUrl;
+    const cached = trackCacheRef.current[trackUrl];
+    setCurrentTrack(cached || trackUrl);
+    // Kick off background download for next time
+    ensureTrackCached(trackUrl);
+  };
+
+  const ensureTrackCached = async (trackUrl) => {
+    if (!trackUrl || trackCacheRef.current[trackUrl]) return;
+    try {
+      const safeName = encodeURIComponent(trackUrl);
+      const fileUri = `${FileSystem.cacheDirectory}moodmap-${safeName}`;
+      const info = await FileSystem.getInfoAsync(fileUri);
+      let finalUri = fileUri;
+      if (!info.exists) {
+        const { uri } = await FileSystem.downloadAsync(trackUrl, fileUri);
+        finalUri = uri;
+      }
+      trackCacheRef.current[trackUrl] = finalUri;
+      await AsyncStorage.setItem(
+        STORAGE_KEYS.TRACK_CACHE,
+        JSON.stringify(trackCacheRef.current)
+      );
+    } catch (e) {
+      // ignore caching errors
+    }
+  };
+
+  // Journey stepping
+  useEffect(() => {
+    if (!activeJourneyId) return;
+    const journey = journeys.find((j) => j.id === activeJourneyId);
+    if (!journey || !journey.steps || !journey.steps.length) {
+      cancelJourney();
+      return;
+    }
+    const step = journey.steps[activeJourneyStep];
+    if (!step) {
+      // Journey finished
+      cancelJourney();
+      try {
+        player.pause();
+        player.seekTo(0);
+      } catch (e) {}
+      setPhase(PHASES.READY);
+      setLastJourneyId(journey.id);
+      setShowReflection(true);
+      return;
+    }
+
+    // Load mood for this step
+    const mood =
+      allMoods.find((m) => m.id === step.moodId) ||
+      ALL_MOODS.find((m) => m.id === step.moodId) ||
+      allMoods[0] ||
+      ALL_MOODS[0];
+    if (mood && mood.tracks && mood.tracks.length) {
+      const trackIndex = Math.floor(Math.random() * mood.tracks.length);
+      const track = mood.tracks[trackIndex] ?? mood.tracks[0];
+      setTrackForPlayback(track);
+      setMoodProfile({
+        peaks: {},
+        dominant: mood.band,
+        moodId: mood.id,
+        recipeId: `${mood.id}__${trackIndex}`,
+        label: mood.label,
+      });
+      setPhase(PHASES.READY);
+    }
+
+    // Schedule next step
+    if (journeyTimerRef.current) clearTimeout(journeyTimerRef.current);
+    const ms = (step.minutes || 0) * 60 * 1000;
+    if (ms > 0) {
+      journeyTimerRef.current = setTimeout(() => {
+        setActiveJourneyStep((idx) => idx + 1);
+      }, ms);
+    }
+
+    return () => {
+      if (journeyTimerRef.current) clearTimeout(journeyTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeJourneyId, activeJourneyStep]);
 
   const syncEnvironment = async () => {
     if (phase === PHASES.LISTENING || phase === PHASES.ANALYZING) return;
@@ -519,13 +666,19 @@ export default function App() {
         style={StyleSheet.absoluteFill}
       />
       <SafeAreaView style={styles.safe} edges={['top']}>
-        {/* Header: theme toggle, mood picker, favourites */}
+        {/* Header: theme toggle, journeys, mood picker, favourites */}
         <View style={styles.header}>
           <TouchableOpacity
             style={[styles.iconButton, { backgroundColor: theme === THEME.DARK ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.08)' }]}
             onPress={() => { setTheme((t) => (t === THEME.DARK ? THEME.LIGHT : THEME.DARK)); haptic('light'); }}
           >
             <Text style={[styles.iconButtonText, { color: c.text }]}>{theme === THEME.DARK ? '☀️' : '🌙'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.iconButton, { backgroundColor: theme === THEME.DARK ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.08)' }]}
+            onPress={() => { setShowJourneys(true); haptic('light'); }}
+          >
+            <Text style={[styles.iconButtonText, { color: c.text }]}>Journeys</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.iconButton, { backgroundColor: theme === THEME.DARK ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.08)' }]}
@@ -761,6 +914,85 @@ export default function App() {
       </Modal>
 
       {/* Favourites Modal */}
+      {/* Journeys Modal */}
+      <Modal visible={showJourneys} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { backgroundColor: theme === THEME.DARK ? '#1a1a2e' : '#f5f5f5' }]}>
+            <Text style={[styles.modalTitle, { color: c.text }]}>Journeys</Text>
+            <ScrollView style={styles.moodList} showsVerticalScrollIndicator={false}>
+              {journeys.map((journey) => {
+                const totalMinutes =
+                  journey.steps?.reduce((sum, step) => sum + (step.minutes || 0), 0) || 0;
+                return (
+                  <TouchableOpacity
+                    key={journey.id}
+                    style={[styles.moodItem, { borderColor: c.textDim }]}
+                    onPress={() => {
+                      cancelJourney();
+                      setActiveJourneyId(journey.id);
+                      setActiveJourneyStep(0);
+                      setShowJourneys(false);
+                      haptic('medium');
+                    }}
+                  >
+                    <Text style={[styles.moodItemText, { color: c.text }]}>{journey.label}</Text>
+                    <Text style={[styles.moodDetail, { color: c.textDim }]}>
+                      {totalMinutes ? `${totalMinutes} min` : ''}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <TouchableOpacity
+              style={[styles.modalClose, { backgroundColor: c.orbPlaying[0] }]}
+              onPress={() => { setShowJourneys(false); haptic('light'); }}
+            >
+              <Text style={styles.syncButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Reflection Modal */}
+      <Modal visible={showReflection} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { backgroundColor: theme === THEME.DARK ? '#1a1a2e' : '#f5f5f5' }]}>
+            <Text style={[styles.modalTitle, { color: c.text }]}>How was your session?</Text>
+            <Text style={[styles.moodDetail, { color: c.textDim, marginBottom: 16 }]}>
+              Did this journey help you focus or relax?
+            </Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+              {['yes', 'some', 'no'].map((result) => (
+                <TouchableOpacity
+                  key={result}
+                  style={[styles.timerChip, { backgroundColor: c.orbReady[0], borderColor: 'transparent', flex: 1 }]}
+                  onPress={async () => {
+                    try {
+                      const raw = await AsyncStorage.getItem(STORAGE_KEYS.REFLECTIONS);
+                      const list = raw ? JSON.parse(raw) : [];
+                      list.push({
+                        journeyId: lastJourneyId,
+                        result,
+                        at: Date.now(),
+                      });
+                      await AsyncStorage.setItem(
+                        STORAGE_KEYS.REFLECTIONS,
+                        JSON.stringify(list.slice(-100))
+                      );
+                    } catch (e) {}
+                    setShowReflection(false);
+                    setLastJourneyId(null);
+                  }}
+                >
+                  <Text style={[styles.timerChipText, { color: '#fff', textAlign: 'center' }]}>
+                    {result === 'yes' ? 'Yes' : result === 'some' ? 'A bit' : 'Not really'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </View>
+      </Modal>
       <Modal visible={showFavourites} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={[styles.modalCard, { backgroundColor: theme === THEME.DARK ? '#1a1a2e' : '#f5f5f5' }]}>
