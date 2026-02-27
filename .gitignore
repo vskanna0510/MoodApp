@@ -39,3 +39,23 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+ android/local.properties
+android/app/build/
+android/app/.cxx/
+android/app/build/outputs/
+android/app/build/outputs/apk/
+android/app/build/outputs/apk/debug/
+android/app/build/outputs/apk/release/
+android/app/build/outputs/apk/debug/app-debug.apk
+android/app/build/outputs/apk/release/app-release.apk   
+android/app/build/outputs/bundle/release/app-release.aab
+android/app/build/outputs/bundle/release/app-release.aab.packaged
+android/app/build/outputs/bundle/release/app-release.aab.packaged.zip
+android/app/build/outputs/bundle/release/app-release.aab.packaged.zip.sha1
+android/app/build/outputs/bundle/release/app-release.aab.packaged.zip.sha256
+android/app/build/outputs/bundle/release/app-release.aab.packaged.zip.sha512
+android/app/build/outputs/bundle/release/app-release.aab.packaged.zip.sha512.txt
+android/app/build/outputs/bundle/release/app-release.aab.packaged.zip.sha512.txt.sha1
+android/app/build/outputs/bundle/release/app-release.aab.packaged.zip.sha512.txt.sha256
+android/app/build/outputs/bundle/release/app-release.aab.packaged.zip.sha512.txt.sha512
+

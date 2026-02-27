@@ -7,10 +7,14 @@ import {
   Animated,
   Dimensions,
   Platform,
+  Modal,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Haptics from 'expo-haptics';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   useAudioPlayer,
   useAudioRecorder,
@@ -101,6 +105,40 @@ const MOOD_LIBRARY = {
   ],
 };
 
+// Flatten for manual picker
+const ALL_MOODS = [
+  ...MOOD_LIBRARY.low.map((m) => ({ ...m, band: 'low' })),
+  ...MOOD_LIBRARY.mid.map((m) => ({ ...m, band: 'mid' })),
+  ...MOOD_LIBRARY.high.map((m) => ({ ...m, band: 'high' })),
+];
+
+const STORAGE_KEYS = { THEME: '@moodmap_theme', FAVOURITES: '@moodmap_favourites' };
+const TIMER_OPTIONS = [0, 15, 30, 45, 60]; // 0 = off
+
+const THEME = { DARK: 'dark', LIGHT: 'light' };
+const COLORS = {
+  dark: {
+    bg: ['#0f0c29', '#302b63', '#24243e'],
+    text: '#fff',
+    textDim: 'rgba(255,255,255,0.7)',
+    orbPlaying: ['#667eea', '#764ba2'],
+    orbReady: ['#11998e', '#38ef7d'],
+    orbIdle: ['#4568dc', '#b06ab3'],
+    bar: 'rgba(102, 126, 234, 0.8)',
+    ring: 'rgba(102, 126, 234, 0.5)',
+  },
+  light: {
+    bg: ['#e0e5ec', '#a8b5c4', '#c5ced9'],
+    text: '#1a1a2e',
+    textDim: 'rgba(26,26,46,0.7)',
+    orbPlaying: ['#667eea', '#764ba2'],
+    orbReady: ['#11998e', '#38ef7d'],
+    orbIdle: ['#5a67d8', '#9f7aea'],
+    bar: 'rgba(90, 103, 216, 0.7)',
+    ring: 'rgba(90, 103, 216, 0.5)',
+  },
+};
+
 export default function App() {
   const [phase, setPhase] = useState(PHASES.IDLE);
   const [moodProfile, setMoodProfile] = useState(null);
@@ -108,6 +146,14 @@ export default function App() {
   const [currentTrack, setCurrentTrack] = useState(
     'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3'
   );
+  const [theme, setTheme] = useState(THEME.DARK);
+  const [volume, setVolume] = useState(1);
+  const [timerMinutes, setTimerMinutes] = useState(0);
+  const [favourites, setFavourites] = useState([]);
+  const [showMoodPicker, setShowMoodPicker] = useState(false);
+  const [showFavourites, setShowFavourites] = useState(false);
+  const timerRef = useRef(null);
+  const fadeRef = useRef(null);
   const orbScale = useRef(new Animated.Value(1)).current;
   const orbOpacity = useRef(new Animated.Value(0.9)).current;
   const ringScale = useRef(new Animated.Value(1)).current;
@@ -117,6 +163,17 @@ export default function App() {
   const barScales = useRef([1, 1, 1].map(() => new Animated.Value(0.3))).current;
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const player = useAudioPlayer(currentTrack);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(STORAGE_KEYS.THEME);
+        if (stored === THEME.LIGHT || stored === THEME.DARK) setTheme(stored);
+        const fav = await AsyncStorage.getItem(STORAGE_KEYS.FAVOURITES);
+        if (fav) setFavourites(JSON.parse(fav));
+      } catch (e) {}
+    })();
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -150,6 +207,52 @@ export default function App() {
       }),
     ]).start();
   }, []);
+
+  const haptic = (type = 'light') => {
+    try {
+      if (type === 'heavy') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+      else if (type === 'medium') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      else Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (e) {}
+  };
+
+  useEffect(() => {
+    try {
+      player.volume = volume;
+    } catch (e) {}
+  }, [volume, player]);
+
+  useEffect(() => {
+    if (theme) AsyncStorage.setItem(STORAGE_KEYS.THEME, theme);
+  }, [theme]);
+
+  useEffect(() => {
+    if (phase !== PHASES.PLAYING || timerMinutes <= 0) return;
+    const ms = timerMinutes * 60 * 1000;
+    timerRef.current = setTimeout(() => {
+      const fadeOut = () => {
+        try {
+          if (player.volume > 0.05) {
+            player.volume = Math.max(0, player.volume - 0.05);
+            fadeRef.current = setTimeout(fadeOut, 100);
+          } else {
+            player.pause();
+            player.seekTo(0);
+            player.volume = volume;
+            setPhase(PHASES.READY);
+            haptic('medium');
+          }
+        } catch (e) {
+          setPhase(PHASES.READY);
+        }
+      };
+      fadeOut();
+    }, ms);
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      if (fadeRef.current) clearTimeout(fadeRef.current);
+    };
+  }, [phase, timerMinutes]);
 
   const runListeningAnimation = () => {
     Animated.loop(
@@ -262,9 +365,43 @@ export default function App() {
     });
   };
 
+  const pickMoodManually = (mood) => {
+    const track =
+      mood.tracks[Math.floor(Math.random() * mood.tracks.length)] ?? mood.tracks[0];
+    setCurrentTrack(track);
+    setMoodProfile({ peaks: {}, dominant: mood.band, moodId: mood.id, label: mood.label });
+    setPhase(PHASES.READY);
+    setShowMoodPicker(false);
+    haptic('medium');
+  };
+
+  const addToFavourites = () => {
+    if (!moodProfile || !currentTrack) return;
+    haptic('light');
+    const entry = { id: Date.now().toString(), label: moodProfile.label, trackUrl: currentTrack, moodId: moodProfile.moodId };
+    const next = [entry, ...favourites].slice(0, 50);
+    setFavourites(next);
+    AsyncStorage.setItem(STORAGE_KEYS.FAVOURITES, JSON.stringify(next));
+  };
+
+  const playFromFavourite = (fav) => {
+    setCurrentTrack(fav.trackUrl);
+    setMoodProfile({ label: fav.label, moodId: fav.moodId, dominant: 'mid', peaks: {} });
+    setPhase(PHASES.READY);
+    setShowFavourites(false);
+    haptic('medium');
+  };
+
+  const removeFavourite = (id) => {
+    const next = favourites.filter((f) => f.id !== id);
+    setFavourites(next);
+    AsyncStorage.setItem(STORAGE_KEYS.FAVOURITES, JSON.stringify(next));
+    haptic('light');
+  };
+
   const syncEnvironment = async () => {
     if (phase === PHASES.LISTENING || phase === PHASES.ANALYZING) return;
-
+    haptic('medium');
     setPhase(PHASES.LISTENING);
     runListeningAnimation();
 
@@ -322,6 +459,7 @@ export default function App() {
   const playSoundscape = async () => {
     if (phase !== PHASES.READY && phase !== PHASES.PLAYING) return;
     if (phase === PHASES.PLAYING) {
+      haptic('light');
       try {
         player.pause();
         player.seekTo(0);
@@ -331,9 +469,24 @@ export default function App() {
       setPhase(PHASES.READY);
       return;
     }
+    haptic('medium');
     setPhase(PHASES.PLAYING);
     try {
+      const v = volume;
+      player.volume = 0;
       await player.play();
+      const steps = 20;
+      const stepMs = 100;
+      let i = 0;
+      const fadeIn = () => {
+        i += 1;
+        const next = Math.min(v * (i / steps), v);
+        try {
+          player.volume = next;
+        } catch (e) {}
+        if (i < steps) setTimeout(fadeIn, stepMs);
+      };
+      setTimeout(fadeIn, stepMs);
     } catch (e) {
       setPhase(PHASES.READY);
     }
@@ -341,15 +494,38 @@ export default function App() {
 
   const isSyncDisabled = phase === PHASES.LISTENING || phase === PHASES.ANALYZING;
   const showPlayButton = phase === PHASES.READY || phase === PHASES.PLAYING;
+  const c = COLORS[theme];
 
   return (
     <View style={styles.container}>
-      <StatusBar style="light" />
+      <StatusBar style={theme === THEME.DARK ? 'light' : 'dark'} />
       <LinearGradient
-        colors={['#0f0c29', '#302b63', '#24243e']}
+        colors={c.bg}
         style={StyleSheet.absoluteFill}
       />
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        {/* Header: theme toggle, pick mood, favourites */}
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={[styles.iconButton, { backgroundColor: theme === THEME.DARK ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.08)' }]}
+            onPress={() => { setTheme((t) => (t === THEME.DARK ? THEME.LIGHT : THEME.DARK)); haptic('light'); }}
+          >
+            <Text style={[styles.iconButtonText, { color: c.text }]}>{theme === THEME.DARK ? '☀️' : '🌙'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.iconButton, { backgroundColor: theme === THEME.DARK ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.08)' }]}
+            onPress={() => { setShowMoodPicker(true); haptic('light'); }}
+          >
+            <Text style={[styles.iconButtonText, { color: c.text }]}>Pick mood</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.iconButton, { backgroundColor: theme === THEME.DARK ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.08)' }]}
+            onPress={() => { setShowFavourites(true); haptic('light'); }}
+          >
+            <Text style={[styles.iconButtonText, { color: c.text }]}>❤️ Favs</Text>
+          </TouchableOpacity>
+        </View>
+
         <Animated.View
           style={[
             styles.content,
@@ -359,8 +535,8 @@ export default function App() {
             },
           ]}
         >
-          <Text style={styles.title}>MoodMap</Text>
-          <Text style={styles.subtitle}>Emotional Soundscape Generator</Text>
+          <Text style={[styles.title, { color: c.text }]}>MoodMap</Text>
+          <Text style={[styles.subtitle, { color: c.textDim }]}>Emotional Soundscape Generator</Text>
 
           <TouchableOpacity
             style={styles.orbContainer}
@@ -370,28 +546,22 @@ export default function App() {
             <Animated.View
               style={[
                 styles.ring,
-                {
-                  transform: [{ scale: ringScale }],
-                  opacity: ringOpacity,
-                },
+                { borderColor: c.ring, transform: [{ scale: ringScale }], opacity: ringOpacity },
               ]}
             />
             <Animated.View
               style={[
                 styles.orb,
-                {
-                  transform: [{ scale: orbScale }],
-                  opacity: orbOpacity,
-                },
+                { transform: [{ scale: orbScale }], opacity: orbOpacity, shadowColor: c.orbIdle[0] },
               ]}
             >
               <LinearGradient
                 colors={
                   phase === PHASES.PLAYING
-                    ? ['#667eea', '#764ba2']
+                    ? c.orbPlaying
                     : phase === PHASES.READY
-                    ? ['#11998e', '#38ef7d']
-                    : ['#4568dc', '#b06ab3']
+                    ? c.orbReady
+                    : c.orbIdle
                 }
                 style={styles.orbGradient}
               />
@@ -405,19 +575,56 @@ export default function App() {
                   key={i}
                   style={[
                     styles.bar,
-                    {
-                      transform: [{ scaleY: anim }],
-                    },
+                    { backgroundColor: c.bar, transform: [{ scaleY: anim }] },
                   ]}
                 />
               ))}
             </View>
           )}
 
-          <Text style={styles.phaseLabel}>{MOOD_LABELS[phase]}</Text>
+          <Text style={[styles.phaseLabel, { color: c.text }]}>{MOOD_LABELS[phase]}</Text>
           {moodProfile && (
-            <Text style={styles.moodDetail}>{moodProfile.label}</Text>
+            <Text style={[styles.moodDetail, { color: c.textDim }]}>{moodProfile.label}</Text>
           )}
+
+          {/* Volume */}
+          <View style={styles.volumeRow}>
+            <Text style={[styles.volumeLabel, { color: c.textDim }]}>Volume</Text>
+            <View style={styles.volumeSegments}>
+              {[0, 0.25, 0.5, 0.75, 1].map((v) => (
+                <TouchableOpacity
+                  key={v}
+                  style={[
+                    styles.volumeSegment,
+                    { backgroundColor: volume >= v ? c.orbReady[0] : (theme === THEME.DARK ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)') },
+                  ]}
+                  onPress={() => { setVolume(v); haptic('light'); }}
+                />
+              ))}
+            </View>
+          </View>
+
+          {/* Timer / Sleep */}
+          <View style={styles.timerRow}>
+            <Text style={[styles.volumeLabel, { color: c.textDim }]}>Sleep timer</Text>
+            <View style={styles.timerChips}>
+              {TIMER_OPTIONS.map((m) => (
+                <TouchableOpacity
+                  key={m}
+                  style={[
+                    styles.timerChip,
+                    {
+                      backgroundColor: timerMinutes === m ? c.orbPlaying[0] : (theme === THEME.DARK ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.08)'),
+                      borderColor: c.textDim,
+                    },
+                  ]}
+                  onPress={() => { setTimerMinutes(m); haptic('light'); }}
+                >
+                  <Text style={[styles.timerChipText, { color: c.text }]}>{m === 0 ? 'Off' : `${m}m`}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
 
           <TouchableOpacity
             style={[styles.syncButton, isSyncDisabled && styles.syncButtonDisabled]}
@@ -440,23 +647,106 @@ export default function App() {
           </TouchableOpacity>
 
           {showPlayButton && (
-            <TouchableOpacity
-              style={styles.playButton}
-              onPress={playSoundscape}
-              activeOpacity={0.8}
-            >
-              <LinearGradient
-                colors={['#11998e', '#38ef7d']}
-                style={styles.playGradient}
+            <>
+              <TouchableOpacity
+                style={styles.playButton}
+                onPress={playSoundscape}
+                activeOpacity={0.8}
               >
-                <Text style={styles.playButtonText}>
-                  {phase === PHASES.PLAYING ? 'Stop Soundscape' : 'Play Soundscape'}
-                </Text>
-              </LinearGradient>
-            </TouchableOpacity>
+                <LinearGradient
+                  colors={['#11998e', '#38ef7d']}
+                  style={styles.playGradient}
+                >
+                  <Text style={styles.playButtonText}>
+                    {phase === PHASES.PLAYING ? 'Stop Soundscape' : 'Play Soundscape'}
+                  </Text>
+                </LinearGradient>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.favButton, { borderColor: c.textDim }]}
+                onPress={addToFavourites}
+              >
+                <Text style={[styles.favButtonText, { color: c.text }]}>❤️ Add to Favourites</Text>
+              </TouchableOpacity>
+            </>
           )}
         </Animated.View>
+
+        {/* Now Playing bar */}
+        {moodProfile && (phase === PHASES.READY || phase === PHASES.PLAYING) && (
+          <View style={[styles.nowPlayingBar, { backgroundColor: theme === THEME.DARK ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.9)' }]}>
+            <Text style={[styles.nowPlayingLabel, { color: c.text }]} numberOfLines={1}>
+              {moodProfile.label}
+            </Text>
+            <TouchableOpacity
+              style={[styles.nowPlayingBtn, { backgroundColor: c.orbReady[0] }]}
+              onPress={playSoundscape}
+            >
+              <Text style={styles.nowPlayingBtnText}>{phase === PHASES.PLAYING ? '⏸' : '▶'}</Text>
+            </TouchableOpacity>
+            {timerMinutes > 0 && (
+              <Text style={[styles.timerBadge, { color: c.textDim }]}>{timerMinutes}m</Text>
+            )}
+          </View>
+        )}
       </SafeAreaView>
+
+      {/* Manual Mood Picker Modal */}
+      <Modal visible={showMoodPicker} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { backgroundColor: theme === THEME.DARK ? '#1a1a2e' : '#f5f5f5' }]}>
+            <Text style={[styles.modalTitle, { color: c.text }]}>Pick a mood</Text>
+            <ScrollView style={styles.moodList} showsVerticalScrollIndicator={false}>
+              {ALL_MOODS.map((mood) => (
+                <TouchableOpacity
+                  key={mood.id}
+                  style={[styles.moodItem, { borderColor: c.textDim }]}
+                  onPress={() => pickMoodManually(mood)}
+                >
+                  <Text style={[styles.moodItemText, { color: c.text }]}>{mood.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity
+              style={[styles.modalClose, { backgroundColor: c.orbPlaying[0] }]}
+              onPress={() => { setShowMoodPicker(false); haptic('light'); }}
+            >
+              <Text style={styles.syncButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Favourites Modal */}
+      <Modal visible={showFavourites} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { backgroundColor: theme === THEME.DARK ? '#1a1a2e' : '#f5f5f5' }]}>
+            <Text style={[styles.modalTitle, { color: c.text }]}>Favourites</Text>
+            {favourites.length === 0 ? (
+              <Text style={[styles.moodDetail, { color: c.textDim, marginVertical: 24 }]}>No favourites yet. Play a soundscape and tap "Add to Favourites".</Text>
+            ) : (
+              <ScrollView style={styles.moodList} showsVerticalScrollIndicator={false}>
+                {favourites.map((fav) => (
+                  <View key={fav.id} style={[styles.favItem, { borderColor: c.textDim }]}>
+                    <TouchableOpacity style={styles.favItemMain} onPress={() => playFromFavourite(fav)}>
+                      <Text style={[styles.moodItemText, { color: c.text }]}>{fav.label}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => removeFavourite(fav.id)} style={styles.favRemove}>
+                      <Text style={[styles.favRemoveText, { color: c.textDim }]}>Remove</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+            <TouchableOpacity
+              style={[styles.modalClose, { backgroundColor: c.orbPlaying[0] }]}
+              onPress={() => { setShowFavourites(false); haptic('light'); }}
+            >
+              <Text style={styles.syncButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -468,12 +758,29 @@ const styles = StyleSheet.create({
   safe: {
     flex: 1,
   },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  iconButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  iconButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
   content: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 32,
-    paddingTop: Platform.OS === 'ios' ? 24 : 24,
+    paddingTop: Platform.OS === 'ios' ? 8 : 8,
   },
   barsRow: {
     flexDirection: 'row',
@@ -486,20 +793,17 @@ const styles = StyleSheet.create({
   bar: {
     width: 8,
     height: 24,
-    backgroundColor: 'rgba(102, 126, 234, 0.8)',
     borderRadius: 4,
   },
   title: {
     fontSize: 36,
     fontWeight: '800',
-    color: '#fff',
     letterSpacing: 1,
     marginBottom: 4,
   },
   subtitle: {
     fontSize: 14,
-    color: 'rgba(255,255,255,0.7)',
-    marginBottom: 48,
+    marginBottom: 24,
     letterSpacing: 0.5,
   },
   orbContainer: {
@@ -515,14 +819,12 @@ const styles = StyleSheet.create({
     height: width * 0.45,
     borderRadius: width * 0.225,
     borderWidth: 2,
-    borderColor: 'rgba(102, 126, 234, 0.5)',
   },
   orb: {
     width: width * 0.38,
     height: width * 0.38,
     borderRadius: width * 0.19,
     overflow: 'hidden',
-    shadowColor: '#667eea',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.4,
     shadowRadius: 16,
@@ -533,14 +835,53 @@ const styles = StyleSheet.create({
   },
   phaseLabel: {
     fontSize: 16,
-    color: 'rgba(255,255,255,0.9)',
     marginBottom: 4,
     fontWeight: '600',
   },
   moodDetail: {
     fontSize: 14,
-    color: 'rgba(255,255,255,0.6)',
-    marginBottom: 32,
+    marginBottom: 16,
+  },
+  volumeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    width: '100%',
+    gap: 12,
+  },
+  volumeLabel: {
+    fontSize: 12,
+    width: 56,
+  },
+  volumeSegments: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 6,
+  },
+  volumeSegment: {
+    flex: 1,
+    height: 24,
+    borderRadius: 4,
+  },
+  timerRow: {
+    marginBottom: 24,
+    width: '100%',
+  },
+  timerChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 6,
+  },
+  timerChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  timerChipText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
   syncButton: {
     width: '100%',
@@ -573,6 +914,7 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: 28,
     overflow: 'hidden',
+    marginBottom: 12,
     shadowColor: '#38ef7d',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.35,
@@ -589,5 +931,98 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     letterSpacing: 0.5,
+  },
+  favButton: {
+    width: '100%',
+    paddingVertical: 14,
+    borderRadius: 24,
+    borderWidth: 1,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  favButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  nowPlayingBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(128,128,128,0.2)',
+  },
+  nowPlayingLabel: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  nowPlayingBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nowPlayingBtnText: {
+    color: '#fff',
+    fontSize: 18,
+  },
+  timerBadge: {
+    fontSize: 12,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 24,
+    paddingBottom: 40,
+    maxHeight: '70%',
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    marginBottom: 16,
+  },
+  modalClose: {
+    height: 50,
+    borderRadius: 25,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+  },
+  moodList: {
+    maxHeight: 280,
+  },
+  moodItem: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+  },
+  moodItemText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  favItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+  },
+  favItemMain: {
+    flex: 1,
+  },
+  favRemove: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+  },
+  favRemoveText: {
+    fontSize: 13,
   },
 });
