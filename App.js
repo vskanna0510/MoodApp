@@ -139,6 +139,43 @@ const COLORS = {
   },
 };
 
+const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
+
+const FOCUS_PLANS = [
+  {
+    id: 'deep-work',
+    label: 'Deep Work',
+    moodId: 'low-deep-focus',
+    band: 'low',
+    timerMinutes: 45,
+    volume: 0.9,
+  },
+  {
+    id: 'study',
+    label: 'Study Session',
+    moodId: 'mid-lofi-beats',
+    band: 'mid',
+    timerMinutes: 30,
+    volume: 0.8,
+  },
+  {
+    id: 'coffee-break',
+    label: 'Coffee Break',
+    moodId: 'mid-coffee-shop',
+    band: 'mid',
+    timerMinutes: 15,
+    volume: 0.7,
+  },
+  {
+    id: 'sleep',
+    label: 'Sleep',
+    moodId: 'low-night-chill',
+    band: 'low',
+    timerMinutes: 60,
+    volume: 0.4,
+  },
+];
+
 export default function App() {
   const [phase, setPhase] = useState(PHASES.IDLE);
   const [moodProfile, setMoodProfile] = useState(null);
@@ -152,6 +189,7 @@ export default function App() {
   const [favourites, setFavourites] = useState([]);
   const [showMoodPicker, setShowMoodPicker] = useState(false);
   const [showFavourites, setShowFavourites] = useState(false);
+  const [selectedPlanId, setSelectedPlanId] = useState(null);
   const timerRef = useRef(null);
   const fadeRef = useRef(null);
   const orbScale = useRef(new Animated.Value(1)).current;
@@ -161,6 +199,7 @@ export default function App() {
   const contentOpacity = useRef(new Animated.Value(0)).current;
   const contentTranslate = useRef(new Animated.Value(24)).current;
   const barScales = useRef([1, 1, 1].map(() => new Animated.Value(0.3))).current;
+  const moodAnim = useRef(new Animated.Value(1)).current;
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const player = useAudioPlayer(currentTrack);
 
@@ -207,6 +246,15 @@ export default function App() {
       }),
     ]).start();
   }, []);
+
+  useEffect(() => {
+    moodAnim.setValue(0);
+    Animated.timing(moodAnim, {
+      toValue: 1,
+      duration: 250,
+      useNativeDriver: true,
+    }).start();
+  }, [moodProfile, phase]);
 
   const haptic = (type = 'light') => {
     try {
@@ -399,6 +447,18 @@ export default function App() {
     haptic('light');
   };
 
+  const applyFocusPlan = (planId) => {
+    const plan = FOCUS_PLANS.find((p) => p.id === planId);
+    if (!plan) return;
+    const moodFromId = ALL_MOODS.find((m) => m.id === plan.moodId);
+    const fallbackBucket = ALL_MOODS.filter((m) => m.band === plan.band);
+    const mood = moodFromId || fallbackBucket[0] || ALL_MOODS[0];
+    setVolume(plan.volume);
+    setTimerMinutes(plan.timerMinutes);
+    setSelectedPlanId(plan.id);
+    pickMoodManually(mood);
+  };
+
   const syncEnvironment = async () => {
     if (phase === PHASES.LISTENING || phase === PHASES.ANALYZING) return;
     haptic('medium');
@@ -472,29 +532,23 @@ export default function App() {
     haptic('medium');
     setPhase(PHASES.PLAYING);
     try {
-      const v = volume;
-      player.volume = 0;
+      // Ensure player uses current volume and just play
+      try {
+        player.volume = volume;
+      } catch (e) {}
       await player.play();
-      const steps = 20;
-      const stepMs = 100;
-      let i = 0;
-      const fadeIn = () => {
-        i += 1;
-        const next = Math.min(v * (i / steps), v);
-        try {
-          player.volume = next;
-        } catch (e) {}
-        if (i < steps) setTimeout(fadeIn, stepMs);
-      };
-      setTimeout(fadeIn, stepMs);
     } catch (e) {
       setPhase(PHASES.READY);
     }
   };
 
   const isSyncDisabled = phase === PHASES.LISTENING || phase === PHASES.ANALYZING;
-  const showPlayButton = phase === PHASES.READY || phase === PHASES.PLAYING;
+  const canPlay = phase === PHASES.READY || phase === PHASES.PLAYING;
   const c = COLORS[theme];
+  const moodTranslateY = moodAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [8, 0],
+  });
 
   return (
     <View style={styles.container}>
@@ -504,7 +558,7 @@ export default function App() {
         style={StyleSheet.absoluteFill}
       />
       <SafeAreaView style={styles.safe} edges={['top']}>
-        {/* Header: theme toggle, pick mood, favourites */}
+        {/* Header: theme toggle, focus plans, favourites */}
         <View style={styles.header}>
           <TouchableOpacity
             style={[styles.iconButton, { backgroundColor: theme === THEME.DARK ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.08)' }]}
@@ -526,14 +580,51 @@ export default function App() {
           </TouchableOpacity>
         </View>
 
-        <Animated.View
-          style={[
+        {/* Focus plans */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.plansRow}
+        >
+          {FOCUS_PLANS.map((plan) => (
+            <TouchableOpacity
+              key={plan.id}
+              style={[
+                styles.planChip,
+                {
+                  backgroundColor:
+                    selectedPlanId === plan.id
+                      ? c.orbPlaying[0]
+                      : theme === THEME.DARK
+                      ? 'rgba(255,255,255,0.1)'
+                      : 'rgba(0,0,0,0.05)',
+                  borderColor: c.textDim,
+                },
+              ]}
+              onPress={() => { applyFocusPlan(plan.id); haptic('medium'); }}
+            >
+              <Text
+                style={[
+                  styles.planChipText,
+                  { color: selectedPlanId === plan.id ? '#fff' : c.text },
+                ]}
+              >
+                {plan.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        <AnimatedScrollView
+          style={{ flex: 1, width: '100%' }}
+          contentContainerStyle={[
             styles.content,
             {
               opacity: contentOpacity,
               transform: [{ translateY: contentTranslate }],
             },
           ]}
+          showsVerticalScrollIndicator={false}
         >
           <Text style={[styles.title, { color: c.text }]}>MoodMap</Text>
           <Text style={[styles.subtitle, { color: c.textDim }]}>Emotional Soundscape Generator</Text>
@@ -582,10 +673,19 @@ export default function App() {
             </View>
           )}
 
-          <Text style={[styles.phaseLabel, { color: c.text }]}>{MOOD_LABELS[phase]}</Text>
-          {moodProfile && (
-            <Text style={[styles.moodDetail, { color: c.textDim }]}>{moodProfile.label}</Text>
-          )}
+          <Animated.View
+            style={{
+              alignItems: 'center',
+              opacity: moodAnim,
+              transform: [{ translateY: moodTranslateY }],
+              marginBottom: 16,
+            }}
+          >
+            <Text style={[styles.phaseLabel, { color: c.text }]}>{MOOD_LABELS[phase]}</Text>
+            {moodProfile && (
+              <Text style={[styles.moodDetail, { color: c.textDim }]}>{moodProfile.label}</Text>
+            )}
+          </Animated.View>
 
           {/* Volume */}
           <View style={styles.volumeRow}>
@@ -646,34 +746,32 @@ export default function App() {
             </LinearGradient>
           </TouchableOpacity>
 
-          {showPlayButton && (
-            <>
-              <TouchableOpacity
-                style={styles.playButton}
-                onPress={playSoundscape}
-                activeOpacity={0.8}
-              >
-                <LinearGradient
-                  colors={['#11998e', '#38ef7d']}
-                  style={styles.playGradient}
-                >
-                  <Text style={styles.playButtonText}>
-                    {phase === PHASES.PLAYING ? 'Stop Soundscape' : 'Play Soundscape'}
-                  </Text>
-                </LinearGradient>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.favButton, { borderColor: c.textDim }]}
-                onPress={addToFavourites}
-              >
-                <Text style={[styles.favButtonText, { color: c.text }]}>❤️ Add to Favourites</Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </Animated.View>
+          {/* Play + Favourites are always visible; play is disabled until ready */}
+          <TouchableOpacity
+            style={[styles.playButton, !canPlay && { opacity: 0.5 }]}
+            onPress={canPlay ? playSoundscape : undefined}
+            activeOpacity={canPlay ? 0.8 : 1}
+          >
+            <LinearGradient
+              colors={['#11998e', '#38ef7d']}
+              style={styles.playGradient}
+            >
+              <Text style={styles.playButtonText}>
+                {phase === PHASES.PLAYING ? 'Stop Soundscape' : 'Play Soundscape'}
+              </Text>
+            </LinearGradient>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.favButton, { borderColor: c.textDim, opacity: moodProfile ? 1 : 0.5 }]}
+            onPress={moodProfile ? addToFavourites : undefined}
+            activeOpacity={moodProfile ? 0.8 : 1}
+          >
+            <Text style={[styles.favButtonText, { color: c.text }]}>❤️ Add to Favourites</Text>
+          </TouchableOpacity>
+        </AnimatedScrollView>
 
         {/* Now Playing bar */}
-        {moodProfile && (phase === PHASES.READY || phase === PHASES.PLAYING) && (
+        {moodProfile && canPlay && (
           <View style={[styles.nowPlayingBar, { backgroundColor: theme === THEME.DARK ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.9)' }]}>
             <Text style={[styles.nowPlayingLabel, { color: c.text }]} numberOfLines={1}>
               {moodProfile.label}
@@ -762,25 +860,41 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
     gap: 8,
   },
   iconButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
   },
   iconButtonText: {
-    fontSize: 13,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  plansRow: {
+    paddingHorizontal: 12,
+    paddingBottom: 6,
+    gap: 6,
+  },
+  planChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginRight: 6,
+  },
+  planChipText: {
+    fontSize: 11,
     fontWeight: '600',
   },
   content: {
-    flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     paddingHorizontal: 32,
-    paddingTop: Platform.OS === 'ios' ? 8 : 8,
+    paddingTop: Platform.OS === 'ios' ? 12 : 12,
+    paddingBottom: 32,
   },
   barsRow: {
     flexDirection: 'row',

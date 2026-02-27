@@ -22,7 +22,7 @@
       }
     },
     "android": {
-      "package": "com.yourcompany.moodmap",
+      "package": "com.VSK.moodmap",
       "adaptiveIcon": {
         "backgroundColor": "#0f0c29",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -30,14 +30,27 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "permissions": [
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-audio"
-    ]
+      [
+        "expo-audio",
+        {
+          "enableBackgroundPlayback": true
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "7f85be67-c902-411b-9332-327bafead19f"
+      }
+    }
   }
 }
