@@ -141,6 +141,8 @@ const COLORS = {
 
 const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
 
+const MOODS_URL = 'http://10.0.2.2:4000/moods';
+
 export default function App() {
   const [phase, setPhase] = useState(PHASES.IDLE);
   const [moodProfile, setMoodProfile] = useState(null);
@@ -154,6 +156,8 @@ export default function App() {
   const [favourites, setFavourites] = useState([]);
   const [showMoodPicker, setShowMoodPicker] = useState(false);
   const [showFavourites, setShowFavourites] = useState(false);
+  const [moodFamilies, setMoodFamilies] = useState([]);
+  const [allMoods, setAllMoods] = useState(ALL_MOODS);
   const timerRef = useRef(null);
   const fadeRef = useRef(null);
   const orbScale = useRef(new Animated.Value(1)).current;
@@ -175,6 +179,27 @@ export default function App() {
         const fav = await AsyncStorage.getItem(STORAGE_KEYS.FAVOURITES);
         if (fav) setFavourites(JSON.parse(fav));
       } catch (e) {}
+
+      // Load mood taxonomy from backend
+      try {
+        const res = await fetch(MOODS_URL);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && Array.isArray(data.families)) {
+            setMoodFamilies(data.families);
+            const flat = data.families.flatMap((family) =>
+              (family.moods || []).map((mood) => ({
+                ...mood,
+                familyId: family.id,
+              }))
+            );
+            if (flat.length) setAllMoods(flat);
+          }
+        }
+      } catch (e) {
+        // Fallback to static ALL_MOODS when backend is unreachable
+        setMoodFamilies([]);
+      }
     })();
   }, []);
 
@@ -345,9 +370,10 @@ export default function App() {
       high: 0.1 + Math.random() * 0.5,
     };
     const dominant = Object.entries(peaks).sort((a, b) => b[1] - a[1])[0][0];
-    const bucket = MOOD_LIBRARY[dominant] ?? MOOD_LIBRARY.low;
+    const candidates = allMoods.filter((mood) => mood.band === dominant);
+    const pool = candidates.length ? candidates : allMoods;
     const mood =
-      bucket[Math.floor(Math.random() * bucket.length)] ?? bucket[0];
+      pool[Math.floor(Math.random() * pool.length)] ?? pool[0] ?? ALL_MOODS[0];
     const track =
       mood.tracks[Math.floor(Math.random() * mood.tracks.length)] ??
       mood.tracks[0];
@@ -695,15 +721,34 @@ export default function App() {
           <View style={[styles.modalCard, { backgroundColor: theme === THEME.DARK ? '#1a1a2e' : '#f5f5f5' }]}>
             <Text style={[styles.modalTitle, { color: c.text }]}>Pick a mood</Text>
             <ScrollView style={styles.moodList} showsVerticalScrollIndicator={false}>
-              {ALL_MOODS.map((mood) => (
-                <TouchableOpacity
-                  key={mood.id}
-                  style={[styles.moodItem, { borderColor: c.textDim }]}
-                  onPress={() => pickMoodManually(mood)}
-                >
-                  <Text style={[styles.moodItemText, { color: c.text }]}>{mood.label}</Text>
-                </TouchableOpacity>
-              ))}
+              {moodFamilies.length > 0
+                ? moodFamilies.map((family) => (
+                    <View key={family.id} style={{ marginBottom: 12 }}>
+                      <Text style={[styles.moodFamilyLabel, { color: c.textDim }]}>
+                        {family.label}
+                      </Text>
+                      {(family.moods || []).map((mood) => (
+                        <TouchableOpacity
+                          key={mood.id}
+                          style={[styles.moodItem, { borderColor: c.textDim }]}
+                          onPress={() => pickMoodManually({ ...mood, band: mood.band })}
+                        >
+                          <Text style={[styles.moodItemText, { color: c.text }]}>
+                            {mood.label}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  ))
+                : allMoods.map((mood) => (
+                    <TouchableOpacity
+                      key={mood.id}
+                      style={[styles.moodItem, { borderColor: c.textDim }]}
+                      onPress={() => pickMoodManually(mood)}
+                    >
+                      <Text style={[styles.moodItemText, { color: c.text }]}>{mood.label}</Text>
+                    </TouchableOpacity>
+                  ))}
             </ScrollView>
             <TouchableOpacity
               style={[styles.modalClose, { backgroundColor: c.orbPlaying[0] }]}
@@ -986,6 +1031,13 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '800',
     marginBottom: 16,
+  },
+  moodFamilyLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
   },
   modalClose: {
     height: 50,
