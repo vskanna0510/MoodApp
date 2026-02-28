@@ -7,6 +7,7 @@ export default function Header({
   onToggleTheme,
   onOpenJourneys,
   onOpenMoodPicker,
+  onOpenMoodFromText,
   onOpenFavourites,
 }) {
   const isDark = theme === 'dark';
@@ -46,6 +47,17 @@ export default function Header({
         activeOpacity={0.8}
       >
         <Text style={[styles.iconButtonText, { color: colors.text }]}>Pick mood</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[
+          styles.iconButton,
+          { backgroundColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.08)' },
+        ]}
+        onPress={onOpenMoodFromText}
+        activeOpacity={0.8}
+      >
+        <Text style={[styles.iconButtonText, { color: colors.text }]}>Type</Text>
       </TouchableOpacity>
 
       <TouchableOpacity

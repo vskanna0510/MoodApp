@@ -141,6 +141,36 @@ app.get('/journeys', (req, res) => {
   res.json({ journeys: JOURNEYS });
 });
 
+// Mood from text: suggest 1–3 moods based on keywords
+const KEYWORD_TO_FAMILY = {
+  focus: ['focus', 'work', 'study', 'exam', 'stress', 'concentrate', 'code', 'read', 'project'],
+  relax: ['relax', 'chill', 'cozy', 'rain', 'calm', 'peace', 'tea', 'lazy', 'sunday', 'wind down', 'unwind'],
+  sleep: ['sleep', 'tired', 'night', 'bed', 'rest', 'dream', 'midnight', 'insomnia'],
+  creative: ['creative', 'idea', 'draw', 'write', 'design', 'inspire', 'brainstorm', 'sketch'],
+  energy: ['energy', 'workout', 'run', 'commute', 'wake', 'morning', 'exercise', 'motivation'],
+  chill: ['lofi', 'hip hop', 'vinyl', 'nostalgia', 'vibe'],
+};
+const FAMILY_IDS = Object.keys(KEYWORD_TO_FAMILY);
+
+function suggestMoodsFromText(text) {
+  const t = (text || '').toLowerCase().trim();
+  if (!t) return [];
+  const matchedFamilies = [];
+  for (const [familyId, keywords] of Object.entries(KEYWORD_TO_FAMILY)) {
+    if (keywords.some((kw) => t.includes(kw))) matchedFamilies.push(familyId);
+  }
+  if (matchedFamilies.length === 0) matchedFamilies.push('focus', 'relax'); // default
+  const pool = ALL_MOODS.filter((m) => matchedFamilies.includes(m.familyId));
+  const shuffled = [...pool].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, 3).map((m) => ({ moodId: m.id, label: m.label }));
+}
+
+app.post('/suggest-moods', (req, res) => {
+  const { text } = req.body || {};
+  const suggestions = suggestMoodsFromText(text);
+  res.json({ suggestions });
+});
+
 app.post('/analyze', (req, res) => {
   const { audioBase64 } = req.body || {};
 

@@ -20,6 +20,7 @@ import MoodPickerModal from './components/MoodPickerModal';
 import JourneysModal from './components/JourneysModal';
 import ReflectionModal from './components/ReflectionModal';
 import FavouritesModal from './components/FavouritesModal';
+import MoodFromTextModal from './components/MoodFromTextModal';
 
 const { width } = Dimensions.get('window');
 const API_URL = 'http://10.0.2.2:4000/analyze';
@@ -156,6 +157,7 @@ const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
 
 const MOODS_URL = 'http://10.0.2.2:4000/moods';
 const JOURNEYS_URL = 'http://10.0.2.2:4000/journeys';
+const SUGGEST_MOODS_URL = 'http://10.0.2.2:4000/suggest-moods';
 
 export default function App() {
   const [phase, setPhase] = useState(PHASES.IDLE);
@@ -170,6 +172,7 @@ export default function App() {
   const [favourites, setFavourites] = useState([]);
   const [showMoodPicker, setShowMoodPicker] = useState(false);
   const [showFavourites, setShowFavourites] = useState(false);
+  const [showMoodFromText, setShowMoodFromText] = useState(false);
   const [moodFamilies, setMoodFamilies] = useState([]);
   const [allMoods, setAllMoods] = useState(ALL_MOODS);
   const [journeys, setJourneys] = useState([]);
@@ -449,7 +452,37 @@ export default function App() {
     setMoodProfile({ peaks: {}, dominant: mood.band, moodId: mood.id, label: mood.label });
     setPhase(PHASES.READY);
     setShowMoodPicker(false);
+    setShowMoodFromText(false);
     haptic('medium');
+  };
+
+  const fetchMoodSuggestions = async (text) => {
+    try {
+      const res = await fetch(SUGGEST_MOODS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.suggestions || [];
+      }
+    } catch (e) {}
+    const t = (text || '').toLowerCase().trim();
+    const bandKeywords = {
+      low: ['sleep', 'tired', 'night', 'relax', 'calm', 'chill', 'cozy'],
+      mid: ['focus', 'work', 'study', 'cozy', 'rain', 'coffee'],
+      high: ['energy', 'workout', 'morning', 'commute'],
+    };
+    let pool = allMoods;
+    for (const [band, kws] of Object.entries(bandKeywords)) {
+      if (kws.some((kw) => t.includes(kw))) {
+        pool = allMoods.filter((m) => m.band === band);
+        break;
+      }
+    }
+    const shuffled = [...pool].sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, 3).map((m) => ({ moodId: m.id, label: m.label }));
   };
 
   const addToFavourites = () => {
@@ -689,6 +722,10 @@ export default function App() {
             setShowMoodPicker(true);
             haptic('light');
           }}
+          onOpenMoodFromText={() => {
+            setShowMoodFromText(true);
+            haptic('light');
+          }}
           onOpenFavourites={() => {
             setShowFavourites(true);
             haptic('light');
@@ -813,6 +850,20 @@ export default function App() {
         colors={c}
         theme={theme}
         styles={styles}
+      />
+
+      <MoodFromTextModal
+        visible={showMoodFromText}
+        onClose={() => {
+          setShowMoodFromText(false);
+          haptic('light');
+        }}
+        onSelectMood={pickMoodManually}
+        colors={c}
+        theme={theme}
+        styles={styles}
+        fetchSuggestions={fetchMoodSuggestions}
+        allMoods={allMoods}
       />
 
       {/* Favourites Modal */}
