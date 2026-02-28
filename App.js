@@ -21,6 +21,7 @@ import JourneysModal from './components/JourneysModal';
 import ReflectionModal from './components/ReflectionModal';
 import FavouritesModal from './components/FavouritesModal';
 import MoodFromTextModal from './components/MoodFromTextModal';
+import EchoModal from './components/EchoModal';
 
 const { width } = Dimensions.get('window');
 const API_URL = 'http://10.0.2.2:4000/analyze';
@@ -126,6 +127,7 @@ const STORAGE_KEYS = {
   FAVOURITES: '@moodmap_favourites',
   TRACK_CACHE: '@moodmap_track_cache',
   REFLECTIONS: '@moodmap_reflections',
+  ECHO: '@moodmap_echo',
 };
 const TIMER_OPTIONS = [0, 15, 30, 45, 60]; // 0 = off
 
@@ -181,6 +183,7 @@ export default function App() {
   const [activeJourneyStep, setActiveJourneyStep] = useState(0);
   const [showReflection, setShowReflection] = useState(false);
   const [lastJourneyId, setLastJourneyId] = useState(null);
+  const [showEchoModal, setShowEchoModal] = useState(false);
   const timerRef = useRef(null);
   const fadeRef = useRef(null);
   const trackCacheRef = useRef({});
@@ -676,6 +679,7 @@ export default function App() {
         // ignore pause errors
       }
       setPhase(PHASES.READY);
+      setShowEchoModal(true);
       return;
     }
     haptic('medium');
@@ -689,6 +693,24 @@ export default function App() {
     } catch (e) {
       setPhase(PHASES.READY);
     }
+  };
+
+  const handleEchoAnswer = async (result) => {
+    try {
+      const raw = await AsyncStorage.getItem(STORAGE_KEYS.ECHO);
+      const list = raw ? JSON.parse(raw) : [];
+      list.push({
+        result,
+        at: Date.now(),
+        moodLabel: moodProfile?.label,
+      });
+      await AsyncStorage.setItem(
+        STORAGE_KEYS.ECHO,
+        JSON.stringify(list.slice(-100))
+      );
+    } catch (e) {}
+    setShowEchoModal(false);
+    haptic('light');
   };
 
   const isSyncDisabled = phase === PHASES.LISTENING || phase === PHASES.ANALYZING;
@@ -924,6 +946,18 @@ export default function App() {
         }}
         onPlayFavourite={playFromFavourite}
         onRemoveFavourite={removeFavourite}
+      />
+
+      <EchoModal
+        visible={showEchoModal}
+        colors={c}
+        theme={theme}
+        styles={styles}
+        onAnswer={handleEchoAnswer}
+        onSkip={() => {
+          setShowEchoModal(false);
+          haptic('light');
+        }}
       />
     </View>
   );
