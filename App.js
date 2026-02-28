@@ -128,6 +128,7 @@ const STORAGE_KEYS = {
   TRACK_CACHE: '@moodmap_track_cache',
   REFLECTIONS: '@moodmap_reflections',
   ECHO: '@moodmap_echo',
+  SESSIONS: '@moodmap_sessions',
 };
 const TIMER_OPTIONS = [0, 15, 30, 45, 60]; // 0 = off
 
@@ -161,6 +162,35 @@ const MOODS_URL = 'http://10.0.2.2:4000/moods';
 const JOURNEYS_URL = 'http://10.0.2.2:4000/journeys';
 const SUGGEST_MOODS_URL = 'http://10.0.2.2:4000/suggest-moods';
 
+function computeStreakSummary(sessions) {
+  if (!Array.isArray(sessions) || sessions.length === 0) {
+    return { totalSessions: 0, totalDays: 0, currentStreak: 0, longestStreak: 0 };
+  }
+  const uniqueDays = new Set(
+    sessions.map((s) => s.day || new Date(s.at).toISOString().slice(0, 10))
+  );
+  const days = Array.from(uniqueDays).sort();
+  const dayNums = days.map((d) => Math.floor(new Date(d).getTime() / 86400000));
+  let longest = 1;
+  let current = 1;
+  for (let i = 1; i < dayNums.length; i += 1) {
+    if (dayNums[i] === dayNums[i - 1] + 1) {
+      current += 1;
+    } else {
+      longest = Math.max(longest, current);
+      current = 1;
+    }
+  }
+  longest = Math.max(longest, current);
+  const currentStreak = current;
+  return {
+    totalSessions: sessions.length,
+    totalDays: days.length,
+    currentStreak,
+    longestStreak: longest,
+  };
+}
+
 export default function App() {
   const [phase, setPhase] = useState(PHASES.IDLE);
   const [moodProfile, setMoodProfile] = useState(null);
@@ -175,6 +205,7 @@ export default function App() {
   const [showMoodPicker, setShowMoodPicker] = useState(false);
   const [showFavourites, setShowFavourites] = useState(false);
   const [showMoodFromText, setShowMoodFromText] = useState(false);
+  const [sessions, setSessions] = useState([]);
   const [moodFamilies, setMoodFamilies] = useState([]);
   const [allMoods, setAllMoods] = useState(ALL_MOODS);
   const [journeys, setJourneys] = useState([]);
@@ -207,6 +238,13 @@ export default function App() {
         if (stored === THEME.LIGHT || stored === THEME.DARK) setTheme(stored);
         const fav = await AsyncStorage.getItem(STORAGE_KEYS.FAVOURITES);
         if (fav) setFavourites(JSON.parse(fav));
+        const sessionsRaw = await AsyncStorage.getItem(STORAGE_KEYS.SESSIONS);
+        if (sessionsRaw) {
+          try {
+            const parsedSessions = JSON.parse(sessionsRaw);
+            if (Array.isArray(parsedSessions)) setSessions(parsedSessions);
+          } catch (e) {}
+        }
       } catch (e) {}
 
       // Load cached track URIs for faster playback
@@ -668,6 +706,19 @@ export default function App() {
     })();
   };
 
+  const logSession = (triggerPhase) => {
+    if (triggerPhase !== PHASES.READY) return;
+    try {
+      const now = Date.now();
+      const day = new Date(now).toISOString().slice(0, 10);
+      setSessions((prev) => {
+        const next = [...prev, { at: now, day }].slice(-365);
+        AsyncStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(next));
+        return next;
+      });
+    } catch (e) {}
+  };
+
   const playSoundscape = async () => {
     if (phase !== PHASES.READY && phase !== PHASES.PLAYING) return;
     if (phase === PHASES.PLAYING) {
@@ -682,6 +733,7 @@ export default function App() {
       setShowEchoModal(true);
       return;
     }
+    logSession(phase);
     haptic('medium');
     setPhase(PHASES.PLAYING);
     try {
@@ -716,6 +768,7 @@ export default function App() {
   const isSyncDisabled = phase === PHASES.LISTENING || phase === PHASES.ANALYZING;
   const canPlay = phase === PHASES.READY || phase === PHASES.PLAYING;
   const c = COLORS[theme];
+  const streakSummary = computeStreakSummary(sessions);
   const moodTranslateY = moodAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [8, 0],
@@ -767,6 +820,14 @@ export default function App() {
         >
           <Text style={[styles.title, { color: c.text }]}>MoodMap</Text>
           <Text style={[styles.subtitle, { color: c.textDim }]}>Emotional Soundscape Generator</Text>
+          {streakSummary.totalSessions > 0 && (
+            <View style={styles.streakRow}>
+              <Text style={[styles.streakText, { color: c.textDim }]}>
+                Sessions: {streakSummary.totalSessions} · Days: {streakSummary.totalDays} · Streak: {streakSummary.currentStreak}{' '}
+                day{streakSummary.currentStreak === 1 ? '' : 's'}
+              </Text>
+            </View>
+          )}
 
           <TouchableOpacity
             style={styles.orbContainer}
@@ -1017,6 +1078,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginBottom: 24,
     letterSpacing: 0.5,
+  },
+  streakRow: {
+    marginBottom: 16,
+  },
+  streakText: {
+    fontSize: 12,
   },
   orbContainer: {
     width: width * 0.5,
