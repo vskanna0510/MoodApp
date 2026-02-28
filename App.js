@@ -43,66 +43,77 @@ const MOOD_LABELS = {
 // High-level mood "bands" used for visualization
 const MOOD_BANDS = ['low', 'mid', 'high'];
 
-// Rich mood categories per band with Lo-Fi style tracks
+// Rich mood categories per band with Lo-Fi style tracks (80+ track entries, matches backend)
+const TRACKS_BASE = Array.from({ length: 17 }, (_, i) =>
+  `https://www.soundhelix.com/examples/mp3/SoundHelix-Song-${i + 1}.mp3`
+);
+const pickTracks = (indices) => indices.map((i) => TRACKS_BASE[i % TRACKS_BASE.length]);
+
 const MOOD_LIBRARY = {
   low: [
-    {
-      id: 'low-night-chill',
-      label: 'Night-time Chill',
-      tracks: [
-        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
-        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3',
-        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3',
-      ],
-    },
-    {
-      id: 'low-deep-focus',
-      label: 'Deep Focus',
-      tracks: [
-        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-13.mp3',
-        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-15.mp3',
-      ],
-    },
+    { id: 'low-night-chill', label: 'Night-time Chill', tracks: pickTracks([0, 1, 2, 3, 4, 5]) },
+    { id: 'low-deep-focus', label: 'Deep Focus', tracks: pickTracks([0, 1, 2, 3, 4]) },
+    { id: 'low-evening-chill', label: 'Evening Wind Down', tracks: pickTracks([1, 3, 5, 7]) },
+    { id: 'low-calm-piano', label: 'Calm Piano', tracks: pickTracks([4, 8, 12, 14]) },
+    { id: 'low-cozy-corner', label: 'Cozy Corner', tracks: pickTracks([0, 7, 11, 15]) },
+    { id: 'low-dreamy-drift', label: 'Dreamy Drift', tracks: pickTracks([1, 3, 5, 7, 9]) },
+    { id: 'low-midnight', label: 'Midnight Calm', tracks: pickTracks([2, 4, 6, 8, 10]) },
+    { id: 'low-starlight', label: 'Starlight', tracks: pickTracks([4, 6, 8, 10, 12]) },
+    { id: 'low-deep-rest', label: 'Deep Rest', tracks: pickTracks([0, 2, 5, 9, 13]) },
+    { id: 'low-library-quiet', label: 'Library Quiet', tracks: pickTracks([1, 5, 9, 13]) },
+    { id: 'low-hammock-day', label: 'Hammock Day', tracks: pickTracks([2, 6, 10, 14]) },
+    { id: 'low-fireplace', label: 'Fireplace', tracks: pickTracks([4, 8, 12, 16]) },
+    { id: 'low-cloud-nine', label: 'Cloud Nine', tracks: pickTracks([1, 4, 7, 11]) },
+    { id: 'low-gentle-waves', label: 'Gentle Waves', tracks: pickTracks([2, 5, 8, 12]) },
+    { id: 'low-moonlight', label: 'Moonlight', tracks: pickTracks([3, 6, 9, 13]) },
+    { id: 'low-writers-room', label: "Writer's Room", tracks: pickTracks([1, 6, 11]) },
+    { id: 'low-nostalgia', label: 'Nostalgia', tracks: pickTracks([0, 5, 9, 13]) },
   ],
   mid: [
-    {
-      id: 'mid-lofi-beats',
-      label: 'Lo-Fi Study Beats',
-      tracks: [
-        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',
-        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3',
-      ],
-    },
-    {
-      id: 'mid-coffee-shop',
-      label: 'Coffee Shop Ambience',
-      tracks: [
-        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-9.mp3',
-        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-14.mp3',
-      ],
-    },
+    { id: 'mid-lofi-beats', label: 'Lo-Fi Study Beats', tracks: pickTracks([1, 5, 6, 7, 8]) },
+    { id: 'mid-coffee-shop', label: 'Coffee Shop Ambience', tracks: pickTracks([8, 9, 10, 11]) },
+    { id: 'mid-rainy-focus', label: 'Rainy Window Focus', tracks: pickTracks([2, 6, 9, 10]) },
+    { id: 'mid-night-coding', label: 'Late Night Coding', tracks: pickTracks([3, 7, 10, 11, 12]) },
+    { id: 'mid-minimal-beats', label: 'Minimal Beats', tracks: pickTracks([4, 8, 11, 13]) },
+    { id: 'mid-concentration', label: 'Concentration Flow', tracks: pickTracks([5, 9, 12, 14]) },
+    { id: 'mid-jazz-cafe', label: 'Jazz Café', tracks: pickTracks([2, 6, 10, 12]) },
+    { id: 'mid-soft-rain', label: 'Soft Rain', tracks: pickTracks([3, 7, 11, 13]) },
+    { id: 'mid-forest-walk', label: 'Forest Walk', tracks: pickTracks([6, 10, 14, 16]) },
+    { id: 'mid-sleepy-beats', label: 'Sleepy Beats', tracks: pickTracks([3, 5, 7, 9, 11]) },
+    { id: 'mid-creative-flow', label: 'Creative Flow', tracks: pickTracks([1, 4, 8, 12]) },
+    { id: 'mid-doodle-mode', label: 'Doodle Mode', tracks: pickTracks([3, 7, 11, 15]) },
+    { id: 'mid-groovy', label: 'Groovy', tracks: pickTracks([8, 12, 16, 0]) },
+    { id: 'mid-reading-nook', label: 'Reading Nook', tracks: pickTracks([0, 4, 8, 12]) },
+    { id: 'mid-deep-work-block', label: 'Deep Work Block', tracks: pickTracks([2, 6, 10, 14]) },
+    { id: 'mid-tea-time', label: 'Tea Time', tracks: pickTracks([1, 5, 9, 13]) },
+    { id: 'mid-ocean-breeze', label: 'Ocean Breeze', tracks: pickTracks([3, 7, 11, 15]) },
+    { id: 'mid-dusk-till-dawn', label: 'Dusk Till Dawn', tracks: pickTracks([0, 4, 8, 12, 16]) },
+    { id: 'mid-sketch-pad', label: 'Sketch Pad', tracks: pickTracks([0, 5, 10, 15]) },
+    { id: 'mid-studio-vibes', label: 'Studio Vibes', tracks: pickTracks([2, 7, 12]) },
+    { id: 'mid-lofi-hip-hop', label: 'Lo-Fi Hip Hop', tracks: pickTracks([1, 4, 8, 12, 16]) },
+    { id: 'mid-vinyl-crackle', label: 'Vinyl Crackle', tracks: pickTracks([2, 6, 10, 14]) },
+    { id: 'mid-chill-hop', label: 'Chill Hop', tracks: pickTracks([3, 7, 11, 15]) },
+    { id: 'mid-late-night-lofi', label: 'Late Night Lo-Fi', tracks: pickTracks([0, 2, 5, 10, 15]) },
   ],
   high: [
-    {
-      id: 'high-sunrise',
-      label: 'Bright Sunrise',
-      tracks: [
-        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3',
-        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3',
-      ],
-    },
-    {
-      id: 'high-energetic',
-      label: 'Energetic Focus',
-      tracks: [
-        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-7.mp3',
-        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-11.mp3',
-      ],
-    },
+    { id: 'high-sunrise', label: 'Bright Sunrise', tracks: pickTracks([0, 2, 4, 6]) },
+    { id: 'high-energetic', label: 'Energetic Focus', tracks: pickTracks([6, 10, 13, 15, 16]) },
+    { id: 'high-morning-flow', label: 'Morning Flow', tracks: pickTracks([7, 11, 14]) },
+    { id: 'high-afternoon', label: 'Lazy Afternoon', tracks: pickTracks([5, 9, 13, 15]) },
+    { id: 'high-inspiration', label: 'Inspiration', tracks: pickTracks([2, 6, 10, 14]) },
+    { id: 'high-ideation', label: 'Ideation', tracks: pickTracks([5, 9, 13, 16]) },
+    { id: 'high-workout', label: 'Light Workout', tracks: pickTracks([6, 10, 14]) },
+    { id: 'high-commute', label: 'Commute', tracks: pickTracks([7, 11, 15]) },
+    { id: 'high-sunday-morning', label: 'Sunday Morning', tracks: pickTracks([0, 5, 10, 15]) },
+    { id: 'high-brainstorm', label: 'Brainstorm', tracks: pickTracks([4, 9, 14]) },
+    { id: 'high-wake-up', label: 'Wake Up', tracks: pickTracks([0, 3, 6, 9]) },
+    { id: 'high-pre-workout', label: 'Pre-workout', tracks: pickTracks([1, 5, 10, 14]) },
+    { id: 'high-road-trip', label: 'Road Trip', tracks: pickTracks([2, 7, 12, 16]) },
+    { id: 'high-sunset-drive', label: 'Sunset Drive', tracks: pickTracks([4, 8, 12]) },
   ],
 };
 
-// Flatten for manual picker
+// Flatten for manual picker (fallback when backend /moods is unreachable)
 const ALL_MOODS = [
   ...MOOD_LIBRARY.low.map((m) => ({ ...m, band: 'low' })),
   ...MOOD_LIBRARY.mid.map((m) => ({ ...m, band: 'mid' })),
