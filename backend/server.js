@@ -1,11 +1,136 @@
 const express = require('express');
 const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+
+// Simple file-based storage for users and usage (for demo / dev only)
+const DATA_DIR = path.join(__dirname, 'data');
+const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-moodmap-secret-change-me';
+
+function ensureDataFiles() {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, '[]', 'utf8');
+  if (!fs.existsSync(SESSIONS_FILE)) fs.writeFileSync(SESSIONS_FILE, '[]', 'utf8');
+}
+
+function readJson(file) {
+  try {
+    const raw = fs.readFileSync(file, 'utf8');
+    return JSON.parse(raw || '[]');
+  } catch (e) {
+    return [];
+  }
+}
+
+function writeJson(file, data) {
+  fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
+}
+
+ensureDataFiles();
+
+function createUserId(email) {
+  // simple deterministic id for demo: email lowercased
+  return email.toLowerCase();
+}
+
+function generateToken(user) {
+  return jwt.sign(
+    { id: user.id, email: user.email, name: user.name },
+    JWT_SECRET,
+    { expiresIn: '7d' }
+  );
+}
+
+function authMiddleware(req, res, next) {
+  const header = req.headers.authorization || '';
+  const [, token] = header.split(' ');
+  if (!token) return res.status(401).json({ error: 'Missing token' });
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    req.user = payload;
+    next();
+  } catch (e) {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+}
+
+// Auth routes
+app.post('/auth/register', (req, res) => {
+  const { email, password, name } = req.body || {};
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+  const users = readJson(USERS_FILE);
+  const existing = users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+  if (existing) {
+    return res.status(400).json({ error: 'Email already registered' });
+  }
+  const id = createUserId(email);
+  const hashed = bcrypt.hashSync(password, 10);
+  const user = {
+    id,
+    email: email.toLowerCase(),
+    name: name || email.split('@')[0],
+    passwordHash: hashed,
+    createdAt: Date.now(),
+  };
+  users.push(user);
+  writeJson(USERS_FILE, users);
+  const token = generateToken(user);
+  res.json({
+    token,
+    user: { id: user.id, email: user.email, name: user.name },
+  });
+});
+
+app.post('/auth/login', (req, res) => {
+  const { email, password } = req.body || {};
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+  const users = readJson(USERS_FILE);
+  const user = users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+  if (!user) {
+    return res.status(400).json({ error: 'Invalid credentials' });
+  }
+  const ok = bcrypt.compareSync(password, user.passwordHash);
+  if (!ok) {
+    return res.status(400).json({ error: 'Invalid credentials' });
+  }
+  const token = generateToken(user);
+  res.json({
+    token,
+    user: { id: user.id, email: user.email, name: user.name },
+  });
+});
+
+app.get('/me', authMiddleware, (req, res) => {
+  res.json({ id: req.user.id, email: req.user.email, name: req.user.name });
+});
+
+// Usage logging
+app.post('/usage/session', authMiddleware, (req, res) => {
+  const { at, day, moodLabel } = req.body || {};
+  const all = readJson(SESSIONS_FILE);
+  all.push({
+    userId: req.user.id,
+    at: at || Date.now(),
+    day: day || new Date().toISOString().slice(0, 10),
+    moodLabel: moodLabel || null,
+  });
+  writeJson(SESSIONS_FILE, all.slice(-5000));
+  res.json({ ok: true });
+});
 
 // Base Lo‑Fi / ambient track pool (SoundHelix 1–17; reuse across moods for 80+ track entries)
 const TRACKS = Array.from({ length: 17 }, (_, i) =>

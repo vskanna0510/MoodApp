@@ -4,6 +4,8 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 export default function Header({
   theme,
   colors,
+  user,
+  onLogout,
   onToggleTheme,
   onOpenJourneys,
   onOpenMoodPicker,
@@ -14,6 +16,18 @@ export default function Header({
 
   return (
     <View style={styles.header}>
+      {user?.email && (
+        <View style={styles.userRow}>
+          <Text style={[styles.userText, { color: colors.textDim }]} numberOfLines={1}>
+            Logged in as {user.email}
+          </Text>
+          <Text style={[styles.userText, { color: colors.textDim }]}> · </Text>
+          <TouchableOpacity onPress={onLogout} activeOpacity={0.8} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={[styles.logoutText, { color: colors.orbPlaying[0] }]}>Logout</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      <View style={styles.buttonsRow}>
       <TouchableOpacity
         style={[
           styles.iconButton,
@@ -70,17 +84,33 @@ export default function Header({
       >
         <Text style={[styles.iconButtonText, { color: colors.text }]}>❤️ Favs</Text>
       </TouchableOpacity>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   header: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    gap: 6,
+  },
+  userRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  userText: {
+    fontSize: 11,
+  },
+  logoutText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  buttonsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
     gap: 8,
   },
   iconButton: {

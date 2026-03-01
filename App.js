@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Animated, Dimensions, Platform, ScrollView } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Animated, Dimensions, Platform, ScrollView, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -129,6 +129,8 @@ const STORAGE_KEYS = {
   REFLECTIONS: '@moodmap_reflections',
   ECHO: '@moodmap_echo',
   SESSIONS: '@moodmap_sessions',
+  AUTH_TOKEN: '@moodmap_auth_token',
+  USER: '@moodmap_user',
 };
 const TIMER_OPTIONS = [0, 15, 30, 45, 60]; // 0 = off
 
@@ -161,6 +163,7 @@ const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
 const MOODS_URL = 'http://10.0.2.2:4000/moods';
 const JOURNEYS_URL = 'http://10.0.2.2:4000/journeys';
 const SUGGEST_MOODS_URL = 'http://10.0.2.2:4000/suggest-moods';
+const AUTH_BASE_URL = 'http://10.0.2.2:4000';
 
 function computeStreakSummary(sessions) {
   if (!Array.isArray(sessions) || sessions.length === 0) {
@@ -206,6 +209,14 @@ export default function App() {
   const [showFavourites, setShowFavourites] = useState(false);
   const [showMoodFromText, setShowMoodFromText] = useState(false);
   const [sessions, setSessions] = useState([]);
+  const [authToken, setAuthToken] = useState(null);
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authMode, setAuthMode] = useState('login'); // 'login' | 'register'
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authName, setAuthName] = useState('');
+  const [authError, setAuthError] = useState('');
   const [moodFamilies, setMoodFamilies] = useState([]);
   const [allMoods, setAllMoods] = useState(ALL_MOODS);
   const [journeys, setJourneys] = useState([]);
@@ -245,7 +256,16 @@ export default function App() {
             if (Array.isArray(parsedSessions)) setSessions(parsedSessions);
           } catch (e) {}
         }
+        const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+        const storedUser = await AsyncStorage.getItem(STORAGE_KEYS.USER);
+        if (token) setAuthToken(token);
+        if (storedUser) {
+          try {
+            setUser(JSON.parse(storedUser));
+          } catch (e) {}
+        }
       } catch (e) {}
+      setAuthLoading(false);
 
       // Load cached track URIs for faster playback
       try {
@@ -716,6 +736,20 @@ export default function App() {
         AsyncStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(next));
         return next;
       });
+      if (authToken) {
+        fetch(`${AUTH_BASE_URL}/usage/session`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({
+            at: Date.now(),
+            day,
+            moodLabel: moodProfile?.label || null,
+          }),
+        }).catch(() => {});
+      }
     } catch (e) {}
   };
 
@@ -774,6 +808,170 @@ export default function App() {
     outputRange: [8, 0],
   });
 
+  const handleAuthSubmit = async () => {
+    const email = authEmail.trim();
+    const password = authPassword.trim();
+    const name = authName.trim();
+    if (!email || !password) {
+      setAuthError('Email and password are required');
+      return;
+    }
+    setAuthError('');
+    setAuthLoading(true);
+    try {
+      const endpoint = authMode === 'login' ? '/auth/login' : '/auth/register';
+      const res = await fetch(`${AUTH_BASE_URL}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          password,
+          name: authMode === 'register' ? name : undefined,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setAuthError(data.error || 'Authentication failed');
+        return;
+      }
+      const data = await res.json();
+      setAuthToken(data.token);
+      setUser(data.user);
+      await AsyncStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, data.token);
+      await AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(data.user));
+      setAuthEmail('');
+      setAuthPassword('');
+      setAuthName('');
+    } catch (e) {
+      setAuthError('Unable to reach server');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    setAuthToken(null);
+    setUser(null);
+    await AsyncStorage.multiRemove([STORAGE_KEYS.AUTH_TOKEN, STORAGE_KEYS.USER]);
+  };
+
+  if (authLoading) {
+    return (
+      <View style={[styles.container, { alignItems: 'center', justifyContent: 'center' }]}>
+        <Text>Loading…</Text>
+      </View>
+    );
+  }
+
+  if (!authToken) {
+    const c = COLORS[theme];
+    return (
+      <View style={styles.container}>
+        <StatusBar style={theme === THEME.DARK ? 'light' : 'dark'} />
+        <LinearGradient colors={c.bg} style={StyleSheet.absoluteFill} />
+        <SafeAreaView style={styles.safe} edges={['top']}>
+          <View style={[styles.content, { paddingHorizontal: 24 }]}>
+            <Text style={[styles.title, { color: c.text }]}>MoodMap</Text>
+            <Text style={[styles.subtitle, { color: c.textDim }]}>Sign in to save your mood journeys</Text>
+            <View style={{ width: '100%', marginTop: 12 }}>
+              <View style={{ flexDirection: 'row', marginBottom: 12 }}>
+                <TouchableOpacity
+                  style={[
+                    styles.authTab,
+                    authMode === 'login' && { backgroundColor: c.orbReady[0] },
+                  ]}
+                  onPress={() => setAuthMode('login')}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      styles.authTabText,
+                      { color: authMode === 'login' ? '#fff' : c.textDim },
+                    ]}
+                  >
+                    Login
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.authTab,
+                    authMode === 'register' && { backgroundColor: c.orbReady[0] },
+                  ]}
+                  onPress={() => setAuthMode('register')}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      styles.authTabText,
+                      { color: authMode === 'register' ? '#fff' : c.textDim },
+                    ]}
+                  >
+                    Register
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              {authMode === 'register' && (
+                <TextInput
+                  style={[
+                    styles.authInput,
+                    { borderColor: c.textDim, color: c.text, marginBottom: 8 },
+                  ]}
+                  placeholder="Name"
+                  placeholderTextColor={c.textDim}
+                  value={authName}
+                  onChangeText={setAuthName}
+                />
+              )}
+              <TextInput
+                style={[styles.authInput, { borderColor: c.textDim, color: c.text }]}
+                placeholder="Email"
+                placeholderTextColor={c.textDim}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                value={authEmail}
+                onChangeText={setAuthEmail}
+              />
+              <TextInput
+                style={[
+                  styles.authInput,
+                  { borderColor: c.textDim, color: c.text, marginTop: 8 },
+                ]}
+                placeholder="Password"
+                placeholderTextColor={c.textDim}
+                secureTextEntry
+                value={authPassword}
+                onChangeText={setAuthPassword}
+              />
+              {authError ? (
+                <Text style={{ color: '#ff6b6b', marginTop: 8, fontSize: 12 }}>
+                  {authError}
+                </Text>
+              ) : null}
+              <TouchableOpacity
+                style={[
+                  styles.syncButton,
+                  { marginTop: 16, opacity: authLoading ? 0.7 : 1 },
+                ]}
+                onPress={handleAuthSubmit}
+                disabled={authLoading}
+                activeOpacity={0.8}
+              >
+                <LinearGradient
+                  colors={['#667eea', '#764ba2']}
+                  style={styles.syncGradient}
+                >
+                  <Text style={styles.syncButtonText}>
+                    {authMode === 'login' ? 'Login' : 'Create account'}
+                  </Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </SafeAreaView>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <StatusBar style={theme === THEME.DARK ? 'light' : 'dark'} />
@@ -785,6 +983,11 @@ export default function App() {
         <Header
           theme={theme}
           colors={c}
+          user={user}
+          onLogout={() => {
+            handleLogout();
+            haptic('light');
+          }}
           onToggleTheme={() => {
             setTheme((t) => (t === THEME.DARK ? THEME.LIGHT : THEME.DARK));
             haptic('light');
@@ -1047,6 +1250,28 @@ const styles = StyleSheet.create({
   iconButtonText: {
     fontSize: 12,
     fontWeight: '600',
+  },
+  authTab: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  authTabText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  authInput: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    marginTop: 8,
   },
   content: {
     alignItems: 'center',
